@@ -172,6 +172,62 @@
   .toast.show{transform:translateX(-50%) translateY(0)}
   footer{max-width:1500px;margin:30px auto;padding:0 20px 40px;font-size:.75rem;color:var(--muted);text-align:center;line-height:1.9}
   .empty{text-align:center;padding:50px;color:var(--muted)}
+  /* ---------- Monitor / Best-Buy / Alerts ---------- */
+  .mon{display:flex;align-items:center;gap:7px;font-size:.76rem;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:7px 12px;white-space:nowrap}
+  .mon .rec{width:9px;height:9px;border-radius:50%;background:var(--up);box-shadow:0 0 10px var(--up);animation:pulse 1.6s infinite}
+  .mon.off{opacity:.55}
+  .mon.off .rec{background:var(--muted);box-shadow:none;animation:none}
+  .mon b{font-variant-numeric:tabular-nums;min-width:30px;text-align:center;color:var(--accent2)}
+  .best-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px;margin-bottom:14px}
+  .bcard{position:relative;background:linear-gradient(150deg,rgba(0,230,118,.10),var(--card) 60%);border:1px solid rgba(0,230,118,.28);border-radius:var(--radius);padding:16px;cursor:pointer;transition:.25s;overflow:hidden;animation:fadein .5s both}
+  .bcard:hover{transform:translateY(-4px);box-shadow:0 16px 44px -22px var(--sbuy)}
+  .bcard .medal{position:absolute;left:14px;top:12px;font-size:1.6rem;filter:drop-shadow(0 0 8px rgba(255,255,255,.25))}
+  .bcard .bh{display:flex;align-items:center;gap:10px}
+  .bcard .bh img{width:40px;height:40px;border-radius:50%;background:#fff1}
+  .bcard .bh b{font-size:1rem;display:block}
+  .bcard .bh span{font-size:.72rem;color:var(--muted)}
+  .bscore{margin-right:auto;text-align:left;font-size:.68rem;color:var(--muted)}
+  .bscore b{display:block;font-size:1.25rem;font-weight:900;color:var(--sbuy);line-height:1.1}
+  .entry{margin-top:12px;background:rgba(0,0,0,.28);border:1px dashed rgba(0,230,118,.4);border-radius:14px;padding:10px 12px}
+  .entry .lbl{font-size:.72rem;color:var(--muted)}
+  .entry .big{font-size:1.55rem;font-weight:900;color:var(--sbuy);font-variant-numeric:tabular-nums;line-height:1.3}
+  .entry .zone{font-size:.73rem;color:var(--muted)}
+  .lad{display:flex;gap:6px;margin-top:9px}
+  .lad div{flex:1;background:rgba(255,255,255,.04);border-radius:10px;padding:6px 4px;text-align:center;font-size:.66rem;color:var(--muted)}
+  .lad div b{display:block;color:var(--text);font-size:.78rem;font-variant-numeric:tabular-nums}
+  .tri{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:8px;font-size:.66rem;text-align:center}
+  .tri div{border-radius:10px;padding:6px 3px;color:var(--muted)}
+  .tri b{display:block;font-size:.78rem;font-variant-numeric:tabular-nums}
+  .tri .sl{background:rgba(239,68,68,.12)} .tri .sl b{color:var(--down)}
+  .tri .t1,.tri .t2{background:rgba(34,197,94,.12)} .tri .t1 b,.tri .t2 b{color:var(--up)}
+  .tri .rr{background:rgba(124,92,255,.16)} .tri .rr b{color:#c4b5fd}
+  .stbadge{display:inline-flex;gap:5px;align-items:center;font-size:.71rem;font-weight:700;padding:3px 10px;border-radius:999px}
+  .st-now{background:rgba(0,230,118,.16);color:var(--sbuy)}
+  .st-wait{background:rgba(251,191,36,.16);color:var(--pot)}
+  .st-below{background:rgba(0,212,255,.14);color:var(--accent2)}
+  .st-no{background:rgba(148,163,184,.14);color:var(--hold)}
+  .buyline{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:8px;padding:7px 10px;border-radius:12px;background:rgba(0,230,118,.07);border:1px solid rgba(0,230,118,.18);font-size:.74rem}
+  .buyline b{color:var(--sbuy);font-size:.9rem;font-variant-numeric:tabular-nums}
+  .alerts{max-height:340px;overflow:auto;display:flex;flex-direction:column;gap:6px;padding-left:4px}
+  .al{display:flex;gap:8px;align-items:center;font-size:.77rem;padding:7px 9px;border-radius:10px;background:rgba(255,255,255,.035);border-right:3px solid var(--alc,var(--accent));cursor:pointer;animation:fadein .35s both}
+  .al:hover{background:rgba(124,92,255,.12)}
+  .al img{width:20px;height:20px;border-radius:50%;flex-shrink:0}
+  .al .t{flex:1;min-width:0}
+  .al .tm{font-size:.66rem;color:var(--muted);white-space:nowrap}
+  .mon-grid{display:grid;grid-template-columns:1.7fr 1fr;gap:14px}
+  @media(max-width:1000px){.mon-grid{grid-template-columns:1fr}}
+  .swrow{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:.8rem;padding:9px 0;border-bottom:1px dashed rgba(255,255,255,.07)}
+  .swrow:last-of-type{border-bottom:none}
+  .sw{width:44px;height:24px;border-radius:999px;background:rgba(255,255,255,.13);position:relative;transition:.2s;flex-shrink:0;cursor:pointer}
+  .sw::after{content:"";position:absolute;top:3px;right:3px;width:18px;height:18px;border-radius:50%;background:#fff;transition:.2s}
+  .sw.on{background:var(--sbuy)} .sw.on::after{right:23px}
+  .btbl{width:100%;border-collapse:collapse;font-size:.8rem;white-space:nowrap}
+  .btbl th{position:sticky;top:0;background:var(--card2);padding:10px 8px;font-weight:600;color:var(--muted);font-size:.74rem;text-align:right}
+  .btbl td{padding:9px 8px;border-top:1px solid var(--border)}
+  .btbl tbody tr{cursor:pointer;transition:.15s}
+  .btbl tbody tr:hover{background:rgba(124,92,255,.1)}
+  .btbl img{width:22px;height:22px;border-radius:50%;vertical-align:middle;margin-left:6px}
+  .gr{font-weight:900;padding:2px 8px;border-radius:8px;font-size:.75rem}
   ::-webkit-scrollbar{width:8px;height:8px}::-webkit-scrollbar-thumb{background:#2a3350;border-radius:8px}
 </style>
 </head>
@@ -185,6 +241,7 @@
     </div>
     <div class="hspacer"></div>
     <div class="status"><span class="dot" id="dot"></span><span id="statusTxt">در حال اتصال به مرجع داده…</span></div>
+    <div class="mon" id="monPill" title="پایش مداوم بازار"><span class="rec"></span>پایش مداوم<b id="cd">--</b></div>
     <div class="toggle" id="viewToggle">
       <button class="active" data-v="cards">🃏 کارت</button>
       <button data-v="table">📋 جدول</button>
@@ -243,6 +300,49 @@
     </div>
   </section>
 
+  <!-- Best coins to buy -->
+  <section id="bestSec">
+    <div class="sec-title"><span class="bar"></span>🏆 بهترین رمزارزها برای خرید <span class="hint">رتبه‌بندی بر پایه «امتیاز فرصت خرید» = تکنیکال + پیش‌بینی + نسبت ریسک/بازده + فاصله تا نقطه ورود + نقدشوندگی</span></div>
+    <div class="best-grid" id="bestCards"></div>
+    <div id="bestTblWrap"></div>
+  </section>
+
+  <!-- Continuous monitoring -->
+  <section>
+    <div class="sec-title"><span class="bar"></span>🔔 پایش مداوم بازار <span class="hint" id="monHint">در حال راه‌اندازی…</span></div>
+    <div class="mon-grid">
+      <div class="panel">
+        <h3>📡 جریان زنده هشدارها <span style="font-size:.72rem;color:var(--muted);font-weight:400" id="alCount"></span></h3>
+        <div class="alerts" id="alerts"><div class="empty" style="padding:24px;font-size:.8rem">هنوز رویدادی ثبت نشده؛ موتور پایش در حال مقایسه‌ی هر چرخه با چرخه قبل است…</div></div>
+      </div>
+      <div class="panel">
+        <h3>⚙️ تنظیمات پایش</h3>
+        <div class="swrow"><span>پایش خودکار</span><div class="sw on" id="swMon"></div></div>
+        <div class="swrow"><span>فاصله بررسی</span>
+          <select class="sel" id="ivSel">
+            <option value="30">هر ۳۰ ثانیه</option>
+            <option value="60">هر ۱ دقیقه</option>
+            <option value="90" selected>هر ۹۰ ثانیه</option>
+            <option value="180">هر ۳ دقیقه</option>
+            <option value="300">هر ۵ دقیقه</option>
+          </select>
+        </div>
+        <div class="swrow"><span>هشدار صوتی</span><div class="sw" id="swSound"></div></div>
+        <div class="swrow"><span>اعلان مرورگر</span><div class="sw" id="swNotif"></div></div>
+        <div class="swrow"><span>فیلتر هشدار</span>
+          <select class="sel" id="alFilter">
+            <option value="all">همه رویدادها</option>
+            <option value="buy" selected>فقط فرصت‌های خرید</option>
+            <option value="watch">فقط علاقه‌مندی‌ها</option>
+          </select>
+        </div>
+        <div class="swrow"><span>چرخه‌های انجام‌شده</span><b id="cycles">۰</b></div>
+        <div class="swrow"><span>آخرین بررسی</span><b id="lastChk">—</b></div>
+        <button class="btn" id="clearAl" style="width:100%;justify-content:center;margin-top:10px">🗑️ پاک کردن تاریخچه هشدارها</button>
+      </div>
+    </div>
+  </section>
+
   <!-- Controls -->
   <section>
     <div class="sec-title"><span class="bar"></span>طبقه‌بندی ارزها <span class="hint">بر اساس امتیاز تکنیکال ترکیبی (۰ تا ۱۰۰)</span></div>
@@ -250,7 +350,8 @@
       <div class="chips" id="chips"></div>
       <div class="search">🔍<input id="q" placeholder="جستجوی نام یا نماد ارز…"></div>
       <select class="sel" id="sort">
-        <option value="score">مرتب‌سازی: امتیاز تکنیکال</option>
+        <option value="buy">مرتب‌سازی: امتیاز فرصت خرید</option>
+        <option value="score">امتیاز تکنیکال</option>
         <option value="rank">رتبه بازار</option>
         <option value="ch24">تغییر ۲۴ ساعته</option>
         <option value="ch7">تغییر ۷ روزه</option>
@@ -296,6 +397,7 @@
       </div>
       <div>
         <div class="predbox" id="mpred"></div>
+        <div class="predbox" id="mbuy" style="margin-top:10px;background:linear-gradient(135deg,rgba(0,230,118,.16),rgba(0,212,255,.06));border-color:rgba(0,230,118,.35)"></div>
         <div class="sr" id="msr"></div>
         <h3 style="font-size:.9rem;margin:14px 0 8px">📊 داده‌های بازار</h3>
         <div class="kv" id="mmkt"></div>
@@ -324,7 +426,7 @@ const CATS = {
   sell:{k:'sell',label:'فروش',c:'#fb7185',icon:'🔻'},
   ssell:{k:'ssell',label:'فروش قوی',c:'#ef4444',icon:'🔴'}
 };
-const state = {coins:[], global:null, fng:null, filter:'all', q:'', sort:'score', view:'cards',
+const state = {coins:[], global:null, fng:null, filter:'all', q:'', sort:'buy', view:'cards',
   watch: JSON.parse(localStorage.getItem('cb_watch')||'[]'), watchOnly:false, modalCoin:null, tf:7, chartCache:{}};
 
 /* ------------------------- Helpers ------------------------- */
@@ -358,7 +460,8 @@ function analyze(c){
   a.ch1=ch1;a.ch24=ch24;a.ch7=ch7;a.ch30=ch30;
   a.volRatio = c.market_cap? c.total_volume/c.market_cap : 0;
   a.athDist = c.ath_change_percentage;
-  if(!a.ok){ a.score=50; a.cat='hold'; a.rsi=50; a.pred=0; a.predLo=0; a.predHi=0; a.conf=20; a.dvol=0; a.signals=[{t:'داده‌ی کافی برای تحلیل تکنیکال وجود ندارد',s:0}]; a.trend='نامشخص'; return a; }
+  if(!a.ok){ a.score=50; a.cat='hold'; a.rsi=50; a.pred=0; a.predLo=0; a.predHi=0; a.conf=20; a.dvol=0; a.signals=[{t:'داده‌ی کافی برای تحلیل تکنیکال وجود ندارد',s:0}]; a.trend='نامشخص'; a.risk='نامشخص';
+    const lp=c.current_price||0; a.entry=lp*0.98; a.entryLo=lp*0.96; a.entryHi=lp; a.entryGap=-2; a.ladder=[]; a.anchors=[]; a.avgEntry=lp*0.98; a.stop=lp*0.93; a.tp1=lp*1.05; a.tp2=lp*1.1; a.rr=1; a.buyScore=35; a.grade='D'; a.gradeC='#fb7185'; a.buyState='no'; a.buyStateTxt='داده ناکافی'; a.support=lp*0.95; a.resist=lp*1.05; return a; }
   const lastP=p[p.length-1];
   const rsiArr=RSI(p,14); a.rsi=last(rsiArr); a.rsiPrev=prev(rsiArr);
   const {macd,signal,hist}=MACD(p); a.macd=last(macd); a.sig=last(signal); a.hist=last(hist); a.histPrev=prev(hist);
@@ -434,7 +537,120 @@ function analyze(c){
   a.risk = a.dvol<3?'کم':a.dvol<6?'متوسط':a.dvol<10?'زیاد':'بسیار زیاد';
   a.support = Math.max(a.low7, a.bbLo); a.resist=Math.min(a.high7, a.bbUp);
   if(a.support>lastP) a.support=a.low7; if(a.resist<lastP) a.resist=a.high7;
+
+  /* ---- Best entry price engine ---- */
+  buyPlan(a, c, lastP, p);
   return a;
+}
+
+/* =====================================================================
+   موتور «بهترین قیمت خرید»
+   نقطه ورود از ترکیب وزنی چند لنگر قیمتی محاسبه می‌شود:
+   حمایت ۷ روزه، باند پایین بولینگر، SMA20/EMA20، VWAP تقریبی،
+   سطوح فیبوناچی اصلاحی و کف‌های تکرارشونده (پیوت). سپس بر اساس
+   نوسان روزانه یک «محدوده خرید» و پلکان ورود سه‌مرحله‌ای ساخته می‌شود.
+   ===================================================================== */
+function buyPlan(a, c, lastP, p){
+  // قیمت مرجع = آخرین قیمت زنده بازار (نه آخرین نقطه نمودار ۷ روزه)
+  const mkt = (c.current_price && isFinite(c.current_price)) ? c.current_price : lastP;
+  const anchors=[];
+  const push=(v,w,label)=>{ if(v!=null && isFinite(v) && v>0) anchors.push({v,w,label}); };
+
+  // 1) لنگرهای تکنیکال
+  push(a.support, 2.2, 'حمایت ۷ روزه');
+  push(a.bbLo,    1.8, 'باند پایین بولینگر');
+  push(a.sma20,   1.5, 'SMA20');
+  push(a.ema20,   1.0, 'EMA20');
+  if(a.sma50!=null && a.sma50<mkt) push(a.sma50, 1.0, 'SMA50');
+
+  // 2) VWAP تقریبی ۷ روزه (میانگین ساده وزنی زمان — تازه‌ترها وزن بیشتر)
+  let vw=0, ww=0; p.forEach((x,i)=>{ const w=1+i/p.length; vw+=x*w; ww+=w; });
+  a.vwap = vw/ww; push(a.vwap, 1.4, 'میانگین وزنی ۷ روزه');
+
+  // 3) فیبوناچی اصلاحی روی دامنه ۷ روزه
+  const rng=a.high7-a.low7;
+  a.fib382 = a.high7 - rng*0.382;
+  a.fib5   = a.high7 - rng*0.5;
+  a.fib618 = a.high7 - rng*0.618;
+  push(a.fib382, 0.9, 'فیبو ۳۸.۲٪');
+  push(a.fib5,   1.2, 'فیبو ۵۰٪');
+  push(a.fib618, 1.1, 'فیبو ۶۱.۸٪');
+
+  // 4) کف‌های پیوت تکرارشونده (نقاط حمایتی واقعی)
+  const piv=[]; for(let i=3;i<p.length-3;i++){ if(p[i]<=p[i-1]&&p[i]<=p[i-2]&&p[i]<=p[i-3]&&p[i]<=p[i+1]&&p[i]<=p[i+2]&&p[i]<=p[i+3]) piv.push(p[i]); }
+  const pivBelow=piv.filter(v=>v<mkt).sort((x,y)=>y-x);
+  if(pivBelow.length){ push(pivBelow[0], 1.6, 'نزدیک‌ترین کف پیوت'); a.pivot=pivBelow[0]; }
+
+  // 5) وزن‌دهی پویا بر اساس شرایط بازار
+  //    روند صعودی قوی => ورود نزدیک‌تر به قیمت روز (ترس از جاماندن)
+  //    روند نزولی/اشباع خرید => صبر برای اصلاح عمیق‌تر
+  let bias = 0;                                   // درصد تعدیل نسبت به قیمت فعلی
+  if(a.score>=74) bias += 0.45;                   // قدرت زیاد: کمتر منتظر بمان
+  else if(a.score>=62) bias += 0.30;
+  else if(a.score<42) bias -= 0.35;               // ساختار ضعیف: تخفیف بیشتر بخواه
+  if(a.rsi>70) bias -= 0.35; else if(a.rsi<32) bias += 0.30;
+  if(a.macdCross==='bull') bias += 0.15;
+  if(a.cross==='golden')   bias += 0.15;
+  if(a.rangePos>0.9)       bias -= 0.25;          // چسبیده به سقف: اصلاح محتمل
+  if(a.bbWidth<4)          bias += 0.10;          // فشردگی: حرکت انفجاری محتمل
+
+  let base = anchors.reduce((s2,x)=>s2+x.v*x.w,0)/anchors.reduce((s2,x)=>s2+x.w,0);
+  // حرکت پایه به سمت قیمت فعلی به اندازه bias
+  const k = clamp(0.5 + bias*0.5, 0.05, 0.95);
+  let entry = base + (mkt-base)*clamp(k,0,1);
+
+  // «بهترین قیمت خرید» هرگز بالاتر از قیمت لحظه‌ای بازار پیشنهاد نمی‌شود
+  entry = Math.min(entry, mkt);
+  // کف منطقی: بیش از ۳ برابر نوسان روزانه پایین‌تر نرو (غیرقابل دسترس می‌شود)
+  entry = Math.max(entry, mkt*(1-clamp(a.dvol,1,12)*3/100));
+
+  const halfBand = clamp(a.dvol*0.45, 0.4, 4.5)/100;   // نیم‌پهنای محدوده خرید
+  a.entry   = entry;
+  a.entryLo = entry*(1-halfBand);
+  a.entryHi = Math.min(entry*(1+halfBand), mkt*1.004);
+  if(a.entryHi<a.entry) a.entryHi=a.entry;             // تضمین ترتیب محدوده
+  a.entryGap= (entry/mkt-1)*100;                     // فاصله تا نقطه ورود (٪)
+  a.anchors = anchors.sort((x,y)=>y.w-x.w).slice(0,5);
+
+  // پلکان ورود سه‌مرحله‌ای (DCA) — همیشه نزولی مرتب می‌شود
+  let L1=Math.min(a.entryHi, mkt), L2=entry, L3=Math.min(a.entryLo, a.support*1.002);
+  L2=Math.min(L2,L1); L3=Math.min(L3,L2);
+  a.ladder=[{p:L1,w:40,t:'پله ۱'},{p:L2,w:35,t:'پله ۲'},{p:L3,w:25,t:'پله ۳'}];
+  a.avgEntry = a.ladder.reduce((s2,x)=>s2+x.p*x.w,0)/100;
+
+  // حد ضرر و اهداف — بر پایه نوسان مؤثر (ATR-like)
+  const atrLike = clamp(a.dvol,0.8,9)/100;
+  a.stop = Math.min(a.support*0.985, a.avgEntry*(1-atrLike*1.6));
+  a.tp1  = Math.max(Math.min(a.resist, a.avgEntry*(1+atrLike*3)), a.avgEntry*(1+atrLike*1.8));
+  a.tp2  = Math.max(a.tp1*1.02, Math.min(a.high7*1.01, a.avgEntry*(1+atrLike*4.5)), a.avgEntry*(1+atrLike*3.2));
+  const risk=a.avgEntry-a.stop, reward=a.tp1-a.avgEntry;
+  a.rr = risk>0? clamp(reward/risk,0,10) : 0;
+
+  // وضعیت لحظه‌ای نسبت به محدوده خرید
+  if(mkt<=a.entryLo)        { a.buyState='below'; a.buyStateTxt='زیر محدوده — تخفیف بیشتر'; }
+  else if(mkt<=a.entryHi)   { a.buyState='now';   a.buyStateTxt='هم‌اکنون در محدوده خرید'; }
+  else if(a.entryGap>-6)    { a.buyState='wait';  a.buyStateTxt='کمی صبر تا اصلاح'; }
+  else                      { a.buyState='no';    a.buyStateTxt='فاصله زیاد تا ورود'; }
+
+  /* ---- امتیاز فرصت خرید (Buy Opportunity Score) ---- */
+  let b=0;
+  b += clamp(a.score-50,-30,30)*0.42;                       // کیفیت تکنیکال
+  b += clamp(a.pred,-12,12)*0.62;                           // پتانسیل بازده هفتگی
+  b += clamp(a.rr-1,-1,3)*3.2;                              // مازاد نسبت ریسک/بازده بر ۱
+  b += clamp(-a.entryGap,0,6)*1.1;                          // عمق تخفیف نقطه ورود
+  b += clamp(a.conf-50,-25,35)*0.11;                        // اطمینان سیگنال
+  b += clamp(Math.log10((c.market_cap||1)/1e8),-2,2.5)*1.6; // نقدشوندگی و اعتبار
+  b -= clamp(a.dvol-4,0,12)*1.15;                           // جریمه نوسان افراطی
+  b -= clamp(a.rsi-68,0,32)*0.28;                           // جریمه اشباع خرید
+  if(a.buyState==='now')   b+=5;
+  if(a.buyState==='below') b+=2;
+  if(a.buyState==='no')    b-=7;
+  if(a.volRatio<0.008)     b-=6;                            // حجم ناکافی
+  if(a.cat==='sell')       b-=5;
+  if(a.cat==='ssell')      b-=12;
+  a.buyScore=Math.round(clamp(50+b,0,100));
+  a.grade = a.buyScore>=82?'A+' : a.buyScore>=74?'A' : a.buyScore>=66?'B+' : a.buyScore>=58?'B' : a.buyScore>=50?'C' : a.buyScore>=40?'D':'E';
+  a.gradeC= a.buyScore>=74?'#00e676' : a.buyScore>=58?'#4ade80' : a.buyScore>=50?'#fbbf24' : a.buyScore>=40?'#fb7185':'#ef4444';
 }
 
 /* ------------------------- Data fetching ------------------------- */
@@ -456,13 +672,14 @@ async function loadAll(manual=false){
   }
   btn.classList.remove('spin');
   renderAll();
+  afterCycle();
   // secondary data (non-blocking)
   getJSON(`${API}/global`).then(g=>{state.global=g.data; renderOverview();}).catch(()=>{});
   getJSON('https://api.alternative.me/fng/?limit=1').then(f=>{state.fng=f.data[0]; renderFNG();}).catch(()=>{ state.fng=null; renderFNG(); });
 }
 
 /* ------------------------- Rendering ------------------------- */
-function renderAll(){ renderOverview(); renderPulse(); renderChips(); renderList(); }
+function renderAll(){ renderOverview(); renderPulse(); renderBest(); renderChips(); renderList(); }
 
 function renderOverview(){
   const g=state.global; const cs=state.coins.filter(c=>c.a.ok);
@@ -534,7 +751,7 @@ function filtered(){
   let l=state.coins.filter(c=>state.filter==='all'||c.a.cat===state.filter);
   if(state.watchOnly) l=l.filter(c=>state.watch.includes(c.id));
   if(state.q){ const q=state.q.toLowerCase(); l=l.filter(c=>c.name.toLowerCase().includes(q)||c.symbol.toLowerCase().includes(q)); }
-  const f={score:(a,b)=>b.a.score-a.a.score, rank:(a,b)=>a.market_cap_rank-b.market_cap_rank, ch24:(a,b)=>b.a.ch24-a.a.ch24, ch7:(a,b)=>b.a.ch7-a.a.ch7, pred:(a,b)=>b.a.pred-a.a.pred, rsi:(a,b)=>a.a.rsi-b.a.rsi, vol:(a,b)=>b.a.dvol-a.a.dvol}[state.sort];
+  const f={buy:(a,b)=>b.a.buyScore-a.a.buyScore, score:(a,b)=>b.a.score-a.a.score, rank:(a,b)=>a.market_cap_rank-b.market_cap_rank, ch24:(a,b)=>b.a.ch24-a.a.ch24, ch7:(a,b)=>b.a.ch7-a.a.ch7, pred:(a,b)=>b.a.pred-a.a.pred, rsi:(a,b)=>a.a.rsi-b.a.rsi, vol:(a,b)=>b.a.dvol-a.a.dvol}[state.sort];
   return l.sort(f);
 }
 
@@ -562,14 +779,15 @@ function renderList(){
         <div class="score-row"><span style="font-size:.72rem;color:var(--muted)">امتیاز</span><div class="score-bar"><span></span><i style="right:${a.score}%"></i></div><span class="score-num" style="color:${C.c}">${a.score}</span></div>
         <div class="ind"><div>RSI<b style="color:${a.rsi<30?'var(--up)':a.rsi>70?'var(--down)':'inherit'}">${a.rsi?.toFixed(0)??'—'}</b></div><div>MACD<b class="${a.hist>=0?'up':'down'}">${a.hist>=0?'مثبت ▲':'منفی ▼'}</b></div><div>روند<b class="${a.pred>=0?'up':'down'}">${a.trend}</b></div></div>
         <div class="pred"><span>پیش‌بینی ۷ روز آینده</span><b class="${cls(a.pred)}">${pct(a.pred,1)}</b><span>اطمینان ${a.conf}٪</span></div>
+        <div class="buyline"><span>💰 بهترین قیمت خرید</span><b>${fmtP(a.entry)}</b><span class="stbadge st-${a.buyState}">${a.buyStateTxt}</span></div>
       </div>`; }).join('');
     requestAnimationFrame(()=>document.querySelectorAll('.spark').forEach(cv=>{ const c=state.coins.find(x=>x.id===cv.dataset.id); sparkline(cv,c.a.prices,c.a.ch7>=0?'#22c55e':'#ef4444'); }));
   } else {
-    sec.innerHTML=`<div class="tbl-wrap"><table><thead><tr><th>#</th><th>ارز</th><th>قیمت</th><th>۱ساعت</th><th>۲۴ساعت</th><th>۷روز</th><th>۳۰روز</th><th>نمودار ۷ روزه</th><th>RSI</th><th>MACD</th><th>امتیاز</th><th>طبقه</th><th>پیش‌بینی ۷ روزه</th><th>ریسک</th><th>ارزش بازار</th></tr></thead><tbody>
+    sec.innerHTML=`<div class="tbl-wrap"><table><thead><tr><th>#</th><th>ارز</th><th>قیمت</th><th>۱ساعت</th><th>۲۴ساعت</th><th>۷روز</th><th>۳۰روز</th><th>نمودار ۷ روزه</th><th>RSI</th><th>MACD</th><th>امتیاز</th><th>امتیاز خرید</th><th>💰 بهترین قیمت خرید</th><th>وضعیت</th><th>طبقه</th><th>پیش‌بینی ۷ روزه</th><th>ریسک</th><th>ارزش بازار</th></tr></thead><tbody>
       ${l.map(c=>{const a=c.a,C=CATS[a.cat];return `<tr onclick="openModal('${c.id}')"><td>${c.market_cap_rank}</td><td><img src="${c.image}"><b>${c.name}</b> <small style="color:var(--muted)">${c.symbol.toUpperCase()}</small></td><td>${fmtP(c.current_price)}</td>
       <td class="${cls(a.ch1)}">${pct(a.ch1,1)}</td><td class="${cls(a.ch24)}">${pct(a.ch24,1)}</td><td class="${cls(a.ch7)}">${pct(a.ch7,1)}</td><td class="${cls(a.ch30)}">${pct(a.ch30,1)}</td>
       <td><canvas class="spark" data-id="${c.id}" style="width:120px;height:34px;margin:0"></canvas></td><td>${a.rsi?.toFixed(0)??'—'}</td><td class="${a.hist>=0?'up':'down'}">${a.hist>=0?'▲':'▼'}</td>
-      <td><b style="color:${C.c}">${a.score}</b></td><td><span class="cat" style="--catc:${C.c}">${C.label}</span></td><td class="${cls(a.pred)}">${pct(a.pred,1)} <small style="color:var(--muted)">(${a.conf}٪)</small></td><td>${a.risk}</td><td>${fmtBig(c.market_cap)}</td></tr>`}).join('')}
+      <td><b style="color:${C.c}">${a.score}</b></td><td><b style="color:${a.gradeC}">${a.buyScore}</b> <small style="color:var(--muted)">${a.grade}</small></td><td><b style="color:var(--sbuy)">${fmtP(a.entry)}</b> <small style="color:var(--muted)">${pct(a.entryGap,1)}</small></td><td><span class="stbadge st-${a.buyState}">${a.buyStateTxt}</span></td><td><span class="cat" style="--catc:${C.c}">${C.label}</span></td><td class="${cls(a.pred)}">${pct(a.pred,1)} <small style="color:var(--muted)">(${a.conf}٪)</small></td><td>${a.risk}</td><td>${fmtBig(c.market_cap)}</td></tr>`}).join('')}
       </tbody></table></div>`;
     requestAnimationFrame(()=>document.querySelectorAll('.spark').forEach(cv=>{ const c=state.coins.find(x=>x.id===cv.dataset.id); sparkline(cv,c.a.prices,c.a.ch7>=0?'#22c55e':'#ef4444'); }));
   }
@@ -597,6 +815,16 @@ function renderModalInfo(c){
     <div class="range"><span>سناریوی بدبینانه<br><b class="down">${fmtP(lo)}</b></span><span style="text-align:center">میزان اطمینان<br><b>${a.conf}٪</b></span><span style="text-align:left">سناریوی خوش‌بینانه<br><b class="up">${fmtP(hi)}</b></span></div>
     <div class="conf"><span style="width:${a.conf}%"></span></div>
     <div style="margin-top:12px;font-size:.8rem;border-top:1px dashed rgba(255,255,255,.1);padding-top:8px">🎯 <b>استراتژی پیشنهادی:</b> ${strat}</div>`;
+  const anchTxt=a.anchors.map(x=>`${x.label}: ${fmtP(x.v)}`).join(' • ');
+  $('#mbuy').innerHTML=`<div style="font-size:.8rem;color:var(--muted)">💰 بهترین قیمت خرید (نقطه ورود بهینه)</div>
+    <div class="big" style="color:var(--sbuy)">${fmtP(a.entry)}</div>
+    <div style="font-size:.85rem">محدوده مطمئن خرید: <b>${fmtP(a.entryLo)}</b> تا <b>${fmtP(a.entryHi)}</b></div>
+    <div style="margin-top:6px"><span class="stbadge st-${a.buyState}">${a.buyStateTxt}</span> <span style="font-size:.78rem;color:var(--muted)">فاصله تا ورود: <b class="${a.entryGap>=0?'up':'down'}">${pct(a.entryGap,2)}</b></span></div>
+    <div class="lad">${a.ladder.map(x=>`<div>${x.t} (${x.w}٪)<b>${fmtP(x.p)}</b></div>`).join('')}</div>
+    <div style="font-size:.75rem;color:var(--muted);margin-top:6px">میانگین ورود پلکانی: <b style="color:var(--text)">${fmtP(a.avgEntry)}</b></div>
+    <div class="tri"><div class="sl">حد ضرر<b>${fmtP(a.stop)}</b></div><div class="t1">هدف ۱<b>${fmtP(a.tp1)}</b></div><div class="t2">هدف ۲<b>${fmtP(a.tp2)}</b></div><div class="rr">R/R<b>${a.rr.toFixed(1)}:1</b></div></div>
+    <div style="margin-top:10px;font-size:.75rem;color:var(--muted);border-top:1px dashed rgba(255,255,255,.12);padding-top:8px">🧮 لنگرهای محاسبه قیمت ورود: ${anchTxt}</div>
+    <div style="margin-top:6px;font-size:.78rem">امتیاز فرصت خرید: <b style="color:${a.gradeC}">${a.buyScore}/100 (${a.grade})</b></div>`;
   $('#msr').innerHTML=`<div class="s">حمایت کلیدی<b>${fmtP(a.support)}</b><small>${pct((a.support/c.current_price-1)*100,1)}</small></div><div class="r">مقاومت کلیدی<b>${fmtP(a.resist)}</b><small>${pct((a.resist/c.current_price-1)*100,1)}</small></div><div style="background:rgba(255,255,255,.05)">ریسک<b>${a.risk}</b><small>نوسان ${a.dvol?.toFixed(1)}٪</small></div>`;
   $('#mmkt').innerHTML=[['ارزش بازار',fmtBig(c.market_cap)],['حجم ۲۴h',fmtBig(c.total_volume)],['حجم/ارزش',(a.volRatio*100).toFixed(1)+'%'],['سقف ۲۴h',fmtP(c.high_24h)],['کف ۲۴h',fmtP(c.low_24h)],['ATH',fmtP(c.ath)],['فاصله از ATH',pct(c.ath_change_percentage,1)],['عرضه در گردش',fmtN(c.circulating_supply,0)],['عرضه کل',c.total_supply?fmtN(c.total_supply,0):'∞'],['تغییر ۳۰ روزه',pct(a.ch30,1)]].map(([k,v])=>`<div>${k}<b>${v}</b></div>`).join('');
 }
@@ -675,6 +903,186 @@ $('#mainChart').addEventListener('mousemove',e=>{ if(!mainMeta) return; const re
   const t=$('#tip'); t.style.display='block'; const d=new Date(times[best]); t.innerHTML=`<b>${fmtP(prices[best])}</b><br>${d.toLocaleDateString('fa-IR')} ${d.getHours()}:00${sma20[best]?'<br>SMA20: '+fmtP(sma20[best]):''}${sma50[best]?'<br>SMA50: '+fmtP(sma50[best]):''}`; t.style.left=Math.min(x+12,rect.width-140)+'px'; t.style.top=(e.clientY-rect.top-10)+'px'; });
 $('#mainChart').addEventListener('mouseleave',()=>$('#tip').style.display='none');
 
+/* =====================================================================
+   رتبه‌بندی بهترین رمزارزها برای خرید + اعلام بهترین قیمت خرید
+   ===================================================================== */
+function bestList(n=25){
+  return [...state.coins]
+    .filter(c=>c.a.ok && c.market_cap>2e7 && c.total_volume>1e6)
+    .sort((x,y)=> y.a.buyScore-x.a.buyScore || y.a.score-x.a.score)
+    .slice(0,n);
+}
+
+function renderBest(){
+  const l=bestList(25); if(!l.length) return;
+  const medals=['🥇','🥈','🥉'];
+  $('#bestCards').innerHTML=l.slice(0,3).map((c,i)=>{
+    const a=c.a, C=CATS[a.cat];
+    return `<div class="bcard" style="animation-delay:${i*70}ms" onclick="openModal('${c.id}')">
+      <div class="medal">${medals[i]}</div>
+      <div class="bh" style="padding-right:34px">
+        <img src="${c.image}" loading="lazy">
+        <div><b>${c.name}</b><span>${c.symbol.toUpperCase()} • رتبه #${c.market_cap_rank} • ${fmtBig(c.market_cap)}</span></div>
+        <div class="bscore">امتیاز خرید<b>${a.buyScore}</b><span class="gr" style="background:${a.gradeC}22;color:${a.gradeC}">${a.grade}</span></div>
+      </div>
+      <div class="entry">
+        <div class="lbl">💰 بهترین قیمت خرید (نقطه ورود بهینه)</div>
+        <div class="big">${fmtP(a.entry)}</div>
+        <div class="zone">محدوده مطمئن: ${fmtP(a.entryLo)} تا ${fmtP(a.entryHi)} • قیمت فعلی ${fmtP(c.current_price)} (${pct(a.entryGap,2)} فاصله)</div>
+        <div style="margin-top:7px"><span class="stbadge st-${a.buyState}">${a.buyState==='now'?'🟢':a.buyState==='below'?'🔵':a.buyState==='wait'?'🟡':'⚪'} ${a.buyStateTxt}</span></div>
+      </div>
+      <div class="lad">${a.ladder.map(s2=>`<div>${s2.t} (${s2.w}٪)<b>${fmtP(s2.p)}</b></div>`).join('')}</div>
+      <div class="tri">
+        <div class="sl">حد ضرر<b>${fmtP(a.stop)}</b></div>
+        <div class="t1">هدف ۱<b>${fmtP(a.tp1)}</b></div>
+        <div class="t2">هدف ۲<b>${fmtP(a.tp2)}</b></div>
+        <div class="rr">ریسک/بازده<b>${a.rr.toFixed(1)}:1</b></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:9px;font-size:.73rem;color:var(--muted)">
+        <span class="cat" style="--catc:${C.c};font-size:.7rem">${C.icon} ${C.label}</span>
+        <span>پیش‌بینی ۷روزه: <b class="${cls(a.pred)}">${pct(a.pred,1)}</b></span>
+        <span>ریسک: ${a.risk}</span>
+      </div>
+    </div>`;
+  }).join('');
+
+  $('#bestTblWrap').innerHTML=`<div class="tbl-wrap" style="max-height:520px;overflow:auto"><table class="btbl">
+    <thead><tr><th>رتبه</th><th>ارز</th><th>امتیاز خرید</th><th>درجه</th><th>قیمت فعلی</th><th>💰 بهترین قیمت خرید</th><th>محدوده خرید</th><th>فاصله</th><th>وضعیت</th><th>حد ضرر</th><th>هدف ۱</th><th>R/R</th><th>پیش‌بینی ۷روزه</th><th>طبقه</th></tr></thead><tbody>
+    ${l.map((c,i)=>{const a=c.a,C=CATS[a.cat];return `<tr onclick="openModal('${c.id}')">
+      <td><b>${i+1}</b></td>
+      <td><img src="${c.image}"><b>${c.name}</b> <small style="color:var(--muted)">${c.symbol.toUpperCase()}</small></td>
+      <td><b style="color:${a.gradeC}">${a.buyScore}</b></td>
+      <td><span class="gr" style="background:${a.gradeC}22;color:${a.gradeC}">${a.grade}</span></td>
+      <td>${fmtP(c.current_price)}</td>
+      <td><b style="color:var(--sbuy)">${fmtP(a.entry)}</b></td>
+      <td style="color:var(--muted);font-size:.75rem">${fmtP(a.entryLo)} – ${fmtP(a.entryHi)}</td>
+      <td class="${a.entryGap>=0?'up':'down'}">${pct(a.entryGap,2)}</td>
+      <td><span class="stbadge st-${a.buyState}">${a.buyStateTxt}</span></td>
+      <td class="down">${fmtP(a.stop)}</td>
+      <td class="up">${fmtP(a.tp1)}</td>
+      <td>${a.rr.toFixed(1)}</td>
+      <td class="${cls(a.pred)}">${pct(a.pred,1)}</td>
+      <td><span class="cat" style="--catc:${C.c};font-size:.68rem">${C.label}</span></td>
+    </tr>`}).join('')}
+  </tbody></table></div>`;
+}
+
+/* =====================================================================
+   موتور پایش مداوم — هر چرخه با چرخه قبل مقایسه و رویدادها ثبت می‌شود
+   ===================================================================== */
+const mon = {
+  on:true, iv:90, sound:false, notif:false, filter:'buy',
+  cycles:0, left:90, timer:null, prev:{},
+  alerts: JSON.parse(localStorage.getItem('cb_alerts')||'[]')
+};
+
+function beep(){ if(!mon.sound) return; try{ const ac=new (window.AudioContext||window.webkitAudioContext)(); const o=ac.createOscillator(), g=ac.createGain();
+  o.type='sine'; o.frequency.value=880; g.gain.setValueAtTime(.001,ac.currentTime); g.gain.exponentialRampToValueAtTime(.18,ac.currentTime+.02); g.gain.exponentialRampToValueAtTime(.001,ac.currentTime+.35);
+  o.connect(g); g.connect(ac.destination); o.start(); o.stop(ac.currentTime+.36);}catch(e){} }
+
+function notify(title,body){ if(!mon.notif) return; try{ if(Notification.permission==='granted') new Notification(title,{body}); }catch(e){} }
+
+function pushAlert(c,kind,text,color,important){
+  const a={id:c.id,sym:c.symbol.toUpperCase(),name:c.name,img:c.image,kind,text,color,t:Date.now()};
+  mon.alerts.unshift(a);
+  if(mon.alerts.length>120) mon.alerts.length=120;
+  if(important){ beep(); notify(`${a.sym} — ${text}`, `قیمت ${fmtP(c.current_price)} • بهترین خرید ${fmtP(c.a.entry)}`); }
+}
+
+/* مقایسه وضعیت جدید با قبلی و تولید رویدادها */
+function detectEvents(){
+  const isFirst = Object.keys(mon.prev).length===0;
+  let fresh=0;
+  state.coins.forEach(c=>{
+    const a=c.a, pv=mon.prev[c.id];
+    if(pv && a.ok){
+      const watched=state.watch.includes(c.id);
+      const pass = k => mon.filter==='all' || (mon.filter==='watch'? watched : k==='buy');
+
+      // ورود قیمت به محدوده بهترین خرید
+      if(pv.buyState!=='now' && a.buyState==='now' && pass('buy')){
+        pushAlert(c,'buy',`وارد محدوده خرید شد — بهترین قیمت ${fmtP(a.entry)}`, '#00e676', true); fresh++;
+      }
+      // ارتقا به خرید قوی
+      if(pv.cat!=='sbuy' && a.cat==='sbuy' && pass('buy')){
+        pushAlert(c,'buy',`ارتقا به «خرید قوی» (امتیاز ${a.score})`, '#00e676', true); fresh++;
+      }
+      // ورود به تاپ ۳ لیدربورد
+      if(pv.buyScore<74 && a.buyScore>=74 && pass('buy')){
+        pushAlert(c,'buy',`امتیاز فرصت خرید به ${a.buyScore} (${a.grade}) رسید`, '#4ade80', true); fresh++;
+      }
+      // کراس‌ها
+      if(pv.macdCross!=='bull' && a.macdCross==='bull' && pass('buy')){
+        pushAlert(c,'sig','کراس صعودی MACD ✨','#4ade80', false); fresh++;
+      }
+      if(pv.cross!=='golden' && a.cross==='golden' && pass('buy')){
+        pushAlert(c,'sig','تقاطع طلایی SMA20/50 🌟','#00e676', true); fresh++;
+      }
+      // اشباع فروش
+      if(pv.rsi>=30 && a.rsi<30 && pass('buy')){
+        pushAlert(c,'sig',`RSI وارد اشباع فروش شد (${a.rsi.toFixed(0)})`,'#00d4ff', false); fresh++;
+      }
+      // هشدارهای ریسکی (فقط در حالت «همه» یا واچ‌لیست)
+      if(mon.filter!=='buy' || watched){
+        if(pv.cat!=='ssell' && a.cat==='ssell'){ pushAlert(c,'risk','سقوط به «فروش قوی» ⛔','#ef4444', watched); fresh++; }
+        if(pv.rsi<=70 && a.rsi>70){ pushAlert(c,'risk',`RSI وارد اشباع خرید شد (${a.rsi.toFixed(0)})`,'#fb7185', false); fresh++; }
+        const mv=(c.current_price/pv.price-1)*100;
+        if(Math.abs(mv)>=3){ pushAlert(c,mv>0?'sig':'risk',`جهش قیمتی ${pct(mv,1)} در یک چرخه`, mv>0?'#22c55e':'#ef4444', watched); fresh++; }
+      }
+      // رسیدن به حد ضرر / هدف برای علاقه‌مندی‌ها
+      if(watched){
+        if(pv.price>a.tp1 === false && c.current_price>=a.tp1 && pv.price<a.tp1){ pushAlert(c,'sig',`به هدف اول رسید (${fmtP(a.tp1)}) 🎯`, '#00e676', true); fresh++; }
+        if(pv.price>a.stop && c.current_price<=a.stop){ pushAlert(c,'risk',`زیر حد ضرر بسته شد (${fmtP(a.stop)}) ⚠️`, '#ef4444', true); fresh++; }
+      }
+    }
+    mon.prev[c.id]={cat:a.cat,score:a.score,buyScore:a.buyScore,buyState:a.buyState,rsi:a.rsi,cross:a.cross,macdCross:a.macdCross,price:c.current_price,tp1:a.tp1,stop:a.stop};
+  });
+  if(isFirst){
+    const top=bestList(3);
+    top.forEach(c=>pushAlert(c,'buy',`شروع پایش — بهترین قیمت خرید ${fmtP(c.a.entry)} (امتیاز ${c.a.buyScore})`, '#7c5cff', false));
+  }
+  localStorage.setItem('cb_alerts', JSON.stringify(mon.alerts.slice(0,60)));
+  renderAlerts();
+  if(fresh) toast(`🔔 ${fresh} رویداد تازه در پایش مداوم ثبت شد`);
+}
+
+function renderAlerts(){
+  const box=$('#alerts');
+  if(!mon.alerts.length){ box.innerHTML='<div class="empty" style="padding:24px;font-size:.8rem">رویدادی مطابق فیلتر فعلی ثبت نشده است.</div>'; $('#alCount').textContent=''; return; }
+  $('#alCount').textContent=`(${mon.alerts.length} رویداد)`;
+  box.innerHTML=mon.alerts.slice(0,60).map(a=>`<div class="al" style="--alc:${a.color}" onclick="openModal('${a.id}')">
+    <img src="${a.img}"><div class="t"><b>${a.sym}</b> — ${a.text}</div><span class="tm">${faTime(a.t)}</span></div>`).join('');
+}
+
+function tick(){
+  if(!mon.on) return;
+  mon.left--;
+  $('#cd').textContent=mon.left>0? mon.left+'s' : '…';
+  if(mon.left<=0){ mon.left=mon.iv; loadAll(false); }
+}
+
+function afterCycle(){
+  mon.cycles++;
+  $('#cycles').textContent=mon.cycles.toLocaleString('fa-IR');
+  $('#lastChk').textContent=faTime(Date.now());
+  $('#monHint').textContent=`هر ${mon.iv} ثانیه یک بار کل بازار واکشی، تحلیل و با چرخه قبل مقایسه می‌شود • ${mon.cycles} چرخه انجام شده`;
+  detectEvents();
+}
+
+function setMon(on){
+  mon.on=on; $('#swMon').classList.toggle('on',on); $('#monPill').classList.toggle('off',!on);
+  $('#cd').textContent = on? mon.left+'s' : 'خاموش';
+  if(on){ mon.left=mon.iv; }
+}
+
+/* کنترل‌های پایش */
+$('#swMon').onclick=()=>{ setMon(!mon.on); toast(mon.on?'▶️ پایش مداوم فعال شد':'⏸️ پایش مداوم متوقف شد'); };
+$('#ivSel').onchange=e=>{ mon.iv=+e.target.value; mon.left=mon.iv; $('#monHint').textContent=`هر ${mon.iv} ثانیه یک بار کل بازار واکشی و تحلیل می‌شود`; toast(`⏱️ فاصله بررسی روی ${mon.iv} ثانیه تنظیم شد`); };
+$('#swSound').onclick=()=>{ mon.sound=!mon.sound; $('#swSound').classList.toggle('on',mon.sound); if(mon.sound) beep(); };
+$('#swNotif').onclick=async()=>{ if(!mon.notif){ try{ const p2=await Notification.requestPermission(); mon.notif=(p2==='granted'); if(!mon.notif) toast('⚠️ اجازه اعلان داده نشد'); }catch(e){ toast('⚠️ مرورگر از اعلان پشتیبانی نمی‌کند'); } } else mon.notif=false; $('#swNotif').classList.toggle('on',mon.notif); };
+$('#alFilter').onchange=e=>{ mon.filter=e.target.value; toast('🔎 فیلتر هشدارها بروزرسانی شد'); };
+$('#clearAl').onclick=()=>{ mon.alerts=[]; localStorage.removeItem('cb_alerts'); renderAlerts(); toast('🗑️ تاریخچه هشدارها پاک شد'); };
+
 /* ------------------------- Events ------------------------- */
 $('#refreshBtn').onclick=()=>loadAll(true);
 $('#q').oninput=e=>{state.q=e.target.value.trim();renderList();};
@@ -688,8 +1096,11 @@ document.querySelectorAll('.tf').forEach(b=>b.onclick=()=>{ state.tf=+b.dataset.
 let rz; window.addEventListener('resize',()=>{ clearTimeout(rz); rz=setTimeout(()=>{ renderList(); if($('#modal').classList.contains('open')) loadAndDrawChart(); },200); });
 
 /* ------------------------- Boot ------------------------- */
+renderAlerts();
+setMon(true);
 loadAll();
-setInterval(()=>loadAll(false), 90*1000); // auto-refresh every 90s
+setInterval(tick, 1000);            // شمارنده معکوس + تریگر واکشی چرخه بعد
+document.addEventListener('visibilitychange',()=>{ if(!document.hidden && mon.on && mon.left>mon.iv-2) loadAll(false); });
 </script>
 </body>
 </html>
