@@ -48,6 +48,7 @@
   .btn{padding:9px 16px;border-radius:12px;background:var(--card2);border:1px solid var(--border);font-size:.85rem;display:inline-flex;align-items:center;gap:6px;transition:.2s}
   .btn:hover{border-color:var(--accent);transform:translateY(-1px)}
   .btn.primary{background:linear-gradient(135deg,var(--accent),#5b3fe0);border:none;box-shadow:0 6px 20px rgba(124,92,255,.35)}
+  .btn.active{border-color:var(--accent);background:rgba(124,92,255,.16);box-shadow:0 0 0 1px var(--accent) inset}
   .btn.spin svg{animation:rot 1s linear infinite}
   @keyframes rot{to{transform:rotate(360deg)}}
 
@@ -81,6 +82,26 @@
   .rs{font-variant-numeric:tabular-nums}
   .ctxsig{margin-top:10px;padding:10px 12px;border-radius:12px;background:rgba(255,255,255,.04);border:1px dashed rgba(255,255,255,.12);font-size:.78rem}
   .ctxsig div{display:flex;justify-content:space-between;gap:8px;padding:3px 0}
+
+  /* ---------- لایه‌ی دروازه‌ی رژیم (Regime Gateway) ---------- */
+  .gatebox{margin-top:12px;padding:11px 12px;border-radius:12px;background:color-mix(in srgb,var(--gc,#94a3b8) 10%,transparent);border:1px solid color-mix(in srgb,var(--gc,#94a3b8) 38%,transparent)}
+  .gate-h{display:flex;align-items:center;gap:10px}
+  .gate-h .g-ico{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;font-size:1.05rem;flex-shrink:0;background:color-mix(in srgb,var(--gc,#94a3b8) 20%,transparent);border:1px solid color-mix(in srgb,var(--gc,#94a3b8) 40%,transparent)}
+  .gate-h b{display:block;font-size:.86rem;color:var(--gc,#94a3b8)}
+  .gate-h .g-sub{display:block;font-size:.71rem;color:var(--muted);margin-top:2px}
+  .gate-h .g-mode{margin-right:auto;font-size:.64rem;color:var(--muted);border:1px solid var(--border);border-radius:999px;padding:2px 8px;white-space:nowrap}
+  .gate-bar{display:flex;height:7px;border-radius:7px;overflow:hidden;margin-top:10px;background:rgba(255,255,255,.06)}
+  .gate-bar span{height:100%;transition:width .6s ease}
+  .gate-why{margin-top:9px;display:flex;flex-direction:column;gap:3px;font-size:.72rem;color:var(--muted)}
+  .gate-why span::before{content:'•';margin-inline-start:6px;color:var(--gc,#94a3b8)}
+  .gate-legend{display:flex;flex-wrap:wrap;gap:6px 12px;margin-top:8px;font-size:.7rem;color:var(--muted)}
+  .gate-legend i{display:inline-block;width:9px;height:9px;border-radius:3px;margin-inline-end:5px;vertical-align:middle}
+  .gbadge{display:inline-flex;align-items:center;gap:4px;font-size:.65rem;font-weight:700;padding:2px 8px;border-radius:999px;white-space:nowrap;
+    color:var(--gc,#94a3b8);background:color-mix(in srgb,var(--gc,#94a3b8) 14%,transparent);border:1px solid color-mix(in srgb,var(--gc,#94a3b8) 45%,transparent)}
+  .gate-note{margin-top:8px;font-size:.73rem;line-height:1.7;padding:8px 10px;border-radius:10px;
+    color:var(--gc,#94a3b8);background:color-mix(in srgb,var(--gc,#94a3b8) 9%,transparent);border:1px dashed color-mix(in srgb,var(--gc,#94a3b8) 35%,transparent)}
+  .gate-note ul{margin:6px 0 0 0;padding-inline-start:16px}
+  .gate-note li{margin:2px 0;color:var(--muted)}
   .panel{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:18px;backdrop-filter:blur(10px)}
   .panel h3{font-size:.95rem;margin-bottom:10px;display:flex;align-items:center;gap:8px}
   .gauge-wrap{display:flex;align-items:center;gap:18px}
@@ -366,6 +387,9 @@
         <div class="regime" style="--rc:#94a3b8"><div class="rico">⏳</div><div><div class="rlbl">در حال محاسبه…</div><div class="rsub">بر پایه ساختار بیت‌کوین و گستردگی بازار</div></div></div>
         <div class="rwhy" id="regimeWhy"></div>
         <div class="rhint" id="regimeHint"></div>
+        <div class="gatebox" id="gateBox" style="--gc:#94a3b8" aria-live="polite">
+          <div class="gate-h"><span class="g-ico">🚦</span><div><b>دروازه‌ی رژیم</b><span class="g-sub">در حال محاسبه…</span></div></div>
+        </div>
       </div>
       <div class="panel">
         <h3>😱 شاخص ترس و طمع</h3>
@@ -397,7 +421,7 @@
   <!-- Best coins to buy -->
   <section id="bestSec">
     <div class="sec-title"><span class="bar"></span>🏆 بهترین رمزارزها برای خرید
-      <button class="btn" id="csvBtn" style="margin-right:auto;font-size:.78rem" aria-label="دریافت خروجی CSV از جدول بهترین‌ها">⬇️ خروجی CSV</button> <span class="hint">رتبه‌بندی بر پایه «امتیاز فرصت خرید» = تکنیکال + پیش‌بینی + ریسک/بازده + فاصله تا ورود + نقدشوندگی + رژیم بازار + قدرت نسبی به BTC • استیبل‌کوین‌ها و توکن‌های رَپ‌شده حذف شده‌اند</span></div>
+      <button class="btn" id="csvBtn" style="margin-right:auto;font-size:.78rem" aria-label="دریافت خروجی CSV از جدول بهترین‌ها">⬇️ خروجی CSV</button> <button class="btn" id="gateOnlyBtn" style="font-size:.78rem" aria-pressed="false" title="فقط ارزهایی که از دروازه‌ی رژیم عبور کرده‌اند نمایش داده شوند">🚦 فقط مجازهای دروازه</button> <span class="hint">رتبه‌بندی بر پایه «امتیاز فرصت خرید» = تکنیکال + پیش‌بینی + ریسک/بازده + فاصله تا ورود + نقدشوندگی + رژیم بازار + قدرت نسبی به BTC • استیبل‌کوین‌ها و توکن‌های رَپ‌شده حذف شده‌اند • «دروازه‌ی رژیم» ورودهای بدون تأیید را مسدود می‌کند</span></div>
     <div class="best-grid" id="bestCards"></div>
     <div id="bestTblWrap"></div>
   </section>
@@ -458,6 +482,13 @@
             <option value="all">همه رویدادها</option>
             <option value="buy" selected>فقط فرصت‌های خرید</option>
             <option value="watch">فقط علاقه‌مندی‌ها</option>
+          </select>
+        </div>
+        <div class="swrow"><span>دروازه‌ی رژیم</span>
+          <select class="sel" id="gateMode" title="دروازه‌ی رژیم تعیین می‌کند در شرایط فعلی بازار ورود تازه مجاز است یا نه">
+            <option value="auto" selected>خودکار (بر پایه رژیم بازار)</option>
+            <option value="strict">سخت‌گیرانه (آستانه‌های بالاتر)</option>
+            <option value="off">خاموش (فقط نمایشی)</option>
           </select>
         </div>
         <div class="swrow"><span>چرخه‌های انجام‌شده</span><b id="cycles">۰</b></div>
@@ -581,6 +612,150 @@ const REGIMES = {
   neutral: {k:'neutral',label:'خنثی / انتخابی',       icon:'🟡', c:'#fbbf24', adj:0,  hint:'ساختار مختلط — فقط سِتاپ‌های با قدرت نسبی مثبت و نسبت ریسک/بازده بالا را انتخاب کنید.'},
   riskoff: {k:'riskoff',label:'ریسک‌گریز (Risk-Off)', icon:'🔴', c:'#ef4444', adj:-7, hint:'بیت‌کوین در ساختار نزولی — اکثر آلت‌کوین‌ها با بتای بالا سقوط می‌کنند؛ حجم را کم و حد ضرر را سفت کنید.'}
 };
+
+/* =====================================================================
+   لایه‌ی سوم تحلیل: دروازه‌ی رژیم (Regime Gateway)
+
+   لایه‌ی دوم (زمینه‌ی بازار) فقط امتیاز را «تعدیل» می‌کند: در بازار
+   ریزشی هم یک آلت می‌تواند امتیاز خرید بالایی بگیرد و سیگنال ورود بدهد.
+   دروازه‌ی رژیم یک لایه‌ی «تصمیم» است، نه امتیاز: پیش از هر ورود تازه
+   دو پرسش را پاسخ می‌دهد —
+
+     ۱) دروازه‌ی کلان: آیا در این شرایط بازار اصلاً ورود تازه منطقی است؟
+        (باز / انتخابی / بسته) — از رژیم بازار + گاردریل‌های طمع و گستردگی
+     ۲) دروازه‌ی ارزی: آیا این ارز مشخص، شرط‌های کمی ورود را دارد؟
+        (امتیاز خرید، R/R با قیمت فعلی، قدرت نسبی به BTC، وضعیت محدوده
+         خرید، نقدشوندگی)
+
+   خروجی آن سه اثر عملی دارد: رتبه‌بندی/نمایش، هشدارهای پایش مداوم، و
+   ثبت سیگنال در کارنامه‌ی عملکرد. هیچ‌گاه سیگنال را پنهان نمی‌کند —
+   همیشه دلیل مسدود شدن نوشته می‌شود تا کاربر بتواند خودش تصمیم بگیرد.
+   ===================================================================== */
+const GATE_STATES={
+  open   :{k:'open',   label:'باز — ورود تازه مجاز',            short:'باز',      icon:'🟢', c:'#00e676'},
+  watch  :{k:'watch',  label:'انتخابی — فقط سِتاپ تأییدشده',    short:'انتخابی',  icon:'🟡', c:'#fbbf24'},
+  blocked:{k:'blocked',label:'بسته — ورود تازه توصیه نمی‌شود',  short:'بسته',     icon:'🛑', c:'#ef4444'}
+};
+const GATE_MODES={
+  auto  :{k:'auto',  label:'خودکار'},
+  strict:{k:'strict',label:'سخت‌گیرانه'},
+  off   :{k:'off',   label:'خاموش'}
+};
+/* آستانه‌های کمی دروازه به تفکیک وضعیت کلان بازار.
+   score = حداقل امتیاز فرصت خرید، rrNow = حداقل ریسک/بازده با قیمت فعلی،
+   rs7 = حداقل قدرت نسبی ۷ روزه به BTC، states = وضعیت‌های مجاز محدوده خرید */
+const GATE_RULES={
+  open   :{score:58, rrNow:1.0, rs7:-2.0, states:['now','below','wait']},
+  watch  :{score:66, rrNow:1.5, rs7: 0.0, states:['now','below']},
+  closed :{score:74, rrNow:2.0, rs7: 5.0, states:['now','below']}
+};
+/* افزایش آستانه‌ها در حالت سخت‌گیرانه */
+const GATE_STRICT={score:6, rrNow:0.5, rs7:1.5};
+
+const GATE_KEY='cb_gate_v1';
+const gate={
+  mode:'auto',        // auto | strict | off
+  onlyApproved:false, // فیلتر نمایشی: فقط مجازهای دروازه
+  load(){ try{ const d=JSON.parse(localStorage.getItem(GATE_KEY)||'{}');
+      if(GATE_MODES[d.mode]) this.mode=d.mode; this.onlyApproved=!!d.onlyApproved; }catch(e){} },
+  save(){ try{ localStorage.setItem(GATE_KEY, JSON.stringify({mode:this.mode, onlyApproved:this.onlyApproved})); }catch(e){} }
+};
+gate.load();
+
+/* ---- دروازه‌ی کلان: از رژیم بازار + گاردریل‌ها ---- */
+function evalMarketGate(R){
+  const reasons=[];
+  if(!R) return {state:'watch', macro:'watch', reasons:['رژیم بازار هنوز محاسبه نشده است'], stats:null};
+  let macro = R.k==='riskon' ? 'open' : R.k==='riskoff' ? 'closed' : 'watch';
+  reasons.push(`رژیم بازار: ${R.label} (امتیاز ${R.pts>0?'+':''}${R.pts})`);
+
+  // گاردریل ۱ — طمع شدید در اوج: حتی در ریسک‌پذیری، تعقیب قیمت خطرناک است
+  if(macro==='open' && R.fng!=null && R.fng>=80 && R.breadth<0.55){
+    macro='watch'; reasons.push(`طمع شدید (${R.fng}) با گستردگی ${(R.breadth*100).toFixed(0)}٪ — فقط ورود انتخابی`);
+  }
+  // گاردریل ۲ — گستردگی فروپاشیده: «خنثی» در عمل یعنی بازار در حال ریختن
+  if(macro==='watch' && R.breadth<0.2 && R.pts<=-2){
+    macro='closed'; reasons.push('گستردگی زیر ۲۰٪ با امتیاز رژیم منفی — دروازه بسته شد');
+  }
+  // گاردریل ۳ — ترس شدید: دروازه را برای انباشت پله‌ای ارزهای بزرگ نیمه‌باز می‌کند
+  if(macro==='closed' && R.fng!=null && R.fng<=18){
+    macro='watch'; reasons.push(`ترس شدید (${R.fng}) — فقط انباشت پله‌ای روی ارزهای بزرگ با قدرت نسبی مثبت`);
+  }
+  if(gate.mode==='strict' && macro==='open'){ macro='watch'; reasons.push('حالت سخت‌گیرانه فعال است — آستانه‌های ورود بالاتر رفت'); }
+  if(gate.mode==='off') reasons.push('دروازه خاموش است — وضعیت‌ها فقط نمایشی‌اند و هیچ سیگنالی فیلتر نمی‌شود');
+
+  /* macro نام قانونِ آستانه‌هاست (open/watch/closed) و state نام وضعیت نمایشی
+     (open/watch/blocked) — این دو عمداً جدا نگه داشته شده‌اند. */
+  const TO_STATE={open:'open', watch:'watch', closed:'blocked'};
+  return {state: gate.mode==='off' ? 'open' : (TO_STATE[macro]||'watch'), macro, reasons};
+}
+
+/* ---- دروازه‌ی ارزی: شرط‌های کمی ورود برای یک ارز مشخص ---- */
+function evalCoinGate(c, mkt){
+  const a=c.a;
+  const out={state:'blocked', reasons:[], fails:[], need:null, exempt:false};
+  if(!a || !a.ok){ out.reasons.push('داده‌ی کافی برای تحلیل تکنیکال وجود ندارد'); return out; }
+  if(!tradable(c)){
+    out.exempt=true; out.reasons.push(`${KIND_LABEL[a.kind]} — معامله‌ی تکنیکال مستقل ندارد و از دروازه‌ی ورود مستثناست`);
+    return out;
+  }
+  const rules=GATE_RULES[(mkt&&mkt.macro)||'watch'];
+  const st = gate.mode==='strict' ? GATE_STRICT : {score:0, rrNow:0, rs7:0};
+  const need={ score:rules.score+st.score, rrNow:rules.rrNow+st.rrNow, rs7:rules.rs7+st.rs7, states:rules.states };
+  out.need=need;
+  const isBtc = c.id==='bitcoin';
+  if(a.buyScore<need.score)  out.fails.push(`امتیاز فرصت خرید ${a.buyScore} کمتر از آستانه‌ی ${need.score}`);
+  if(!(a.rrNow>=need.rrNow)) out.fails.push(`ریسک/بازده با قیمت فعلی ${a.rrNow.toFixed(2)} کمتر از ${need.rrNow.toFixed(1)}`);
+  if(!isBtc && !(a.rs7>=need.rs7)) out.fails.push(`قدرت نسبی به BTC ${pct(a.rs7,1)} ضعیف‌تر از آستانه‌ی ${need.rs7>0?'+':''}${need.rs7}`);
+  if(!need.states.includes(a.buyState)) out.fails.push(`وضعیت ورود: ${a.buyStateTxt}`);
+  if(a.volRatio<0.008)       out.fails.push('حجم معاملات نسبت به ارزش بازار ناکافی است');
+
+  if(!out.fails.length){
+    out.state='open';
+    out.reasons.push(`همه‌ی شرط‌های دروازه برقرار است (امتیاز ${a.buyScore}، R/R ${a.rrNow.toFixed(2)}${isBtc?'':`، RS ${pct(a.rs7,1)}`})`);
+  } else if(out.fails.length===1 && a.buyScore>=need.score-8 && a.rrNow>=need.rrNow-0.5){
+    out.state='watch';
+    out.reasons.push('فقط یک شرط باقی مانده — در واچ‌لیست نگه دارید و منتظر تأیید بمانید');
+    out.reasons.push(out.fails[0]);
+  } else {
+    out.state='blocked';
+    out.reasons=out.fails.slice();
+  }
+  return out;
+}
+
+/* مجوز عبور از دروازه.
+   need='any'  → فقط «بسته» نباشد (برای هشدارها)
+   need='open' → سبز کامل باشد (برای ثبت در کارنامه‌ی عملکرد) */
+function gatePermit(c, need='any'){
+  if(gate.mode==='off') return true;
+  const g=c.a && c.a.gate;
+  if(!g || g.exempt) return true;
+  return need==='open' ? g.state==='open' : g.state!=='blocked';
+}
+
+/* آمار دروازه در کل بازار — برای نوار و راهنمای پنل */
+function gateStats(){
+  const s={open:0,watch:0,blocked:0,exempt:0,total:0};
+  state.coins.forEach(c=>{ const g=c.a&&c.a.gate; if(!g) return; s.total++;
+    if(g.exempt) s.exempt++; else s[g.state]=(s[g.state]||0)+1; });
+  return s;
+}
+
+/* ترتیب نمایش در رتبه‌بندی: مجاز، سپس انتخابی، سپس مسدود */
+function gateRank(c){
+  const g=c.a && c.a.gate;
+  if(gate.mode==='off' || !g || g.exempt) return 0;
+  return g.state==='open' ? 0 : g.state==='watch' ? 1 : 2;
+}
+
+/* نشان دروازه برای کارت‌ها، جدول‌ها و مودال */
+function gateBadge(g){
+  if(!g) return '';
+  const S=GATE_STATES[g.state];
+  const title=g.reasons.length? g.reasons.join(' • ') : '';
+  return `<span class="gbadge" style="--gc:${S.c}" title="${esc(title)}">${S.icon} ${esc(S.short)}</span>`;
+}
 
 /* ------------------------- Helpers ------------------------- */
 const $ = s=>document.querySelector(s);
@@ -904,6 +1079,9 @@ function applyMarketContext(){
   const k = pts>=3?'riskon' : pts<=-3?'riskoff' : 'neutral';
   state.regime={...REGIMES[k], pts, why, breadth, above, fng, btc7:btc?btc.a.ch7:0, btc24:btc?btc.a.ch24:0};
 
+  /* ---- لایه‌ی سوم: دروازه‌ی رژیم (کلان) ---- */
+  state.gate=evalMarketGate(state.regime);
+
   const adj=state.regime.adj;
   state.coins.forEach(c=>{
     const a=c.a; if(!a.ok) return;
@@ -917,13 +1095,19 @@ function applyMarketContext(){
       if(state.regime.k==='riskoff' && a.rs7>3) b+=3;   // مقاوم در بازار ریزشی = رهبر احتمالی
     }
     a.buyScore=Math.round(clamp(50+b,0,100)); setGrade(a);
+    /* ---- لایه‌ی سوم: دروازه‌ی رژیم (هر ارز) ---- */
+    a.gate=evalCoinGate(c, state.gate);
     // سیگنال‌های زمینه‌ای برای نمایش در مودال (روی امتیاز تکنیکال اثر ندارند)
     a.ctx=[];
     if(c.id!=='bitcoin'){
       a.ctx.push({t:`قدرت نسبی ۷ روزه در برابر بیت‌کوین: ${pct(a.rs7,1)}${a.rs7>3?' — پیشروی آلت 💪':a.rs7<-3?' — ضعیف‌تر از بازار':''}`, s:Math.round(clamp(a.rs7,-12,12)*0.35)});
       a.ctx.push({t:`رژیم بازار: ${state.regime.label}`, s:adj});
     }
+    if(a.gate && !a.gate.exempt){
+      a.ctx.push({t:`دروازه‌ی رژیم: ${GATE_STATES[a.gate.state].label}`, s:a.gate.state==='open'?0:a.gate.state==='watch'?-2:-5});
+    }
   });
+  state.gate.stats=gateStats();
 }
 
 /* ------------------------- Data fetching ------------------------- */
@@ -1031,6 +1215,41 @@ function renderRegime(){
   if(R.k==='riskon' && R.fng!=null && R.fng>78) hint+=' ⚠️ اما طمع شدید در بازار؛ از تعقیب قیمت بپرهیزید.';
   if(R.k==='riskoff' && R.fng!=null && R.fng<22) hint+=' 💡 ترس شدید + ریسک‌گریزی: منطقه‌ی انباشت پله‌ای بلندمدت روی ارزهای بزرگ.';
   $('#regimeHint').textContent=hint;
+  renderGate();
+}
+
+/* ------------------------- دروازه‌ی رژیم: نمایش ------------------------- */
+/* همگام‌سازی کنترل‌های دروازه با تنظیمات ذخیره‌شده */
+function syncGateUI(){
+  const b=$('#gateOnlyBtn');
+  if(b){ b.classList.toggle('active', gate.onlyApproved); b.setAttribute('aria-pressed', gate.onlyApproved?'true':'false'); }
+  const s=$('#gateMode'); if(s) s.value=gate.mode;
+}
+
+function renderGate(){
+  const box=$('#gateBox'); if(!box) return;
+  const m=state.gate;
+  if(!m){ box.style.setProperty('--gc','#94a3b8');
+    box.innerHTML='<div class="gate-h"><span class="g-ico">🚦</span><div><b>دروازه‌ی رژیم</b><span class="g-sub">در حال محاسبه…</span></div></div>';
+    return; }
+  const S=GATE_STATES[m.state]||GATE_STATES.watch, s=m.stats||{open:0,watch:0,blocked:0,exempt:0};
+  const n=Math.max(1,(s.open||0)+(s.watch||0)+(s.blocked||0));
+  box.style.setProperty('--gc',S.c);
+  box.innerHTML=`<div class="gate-h"><span class="g-ico">${S.icon}</span>
+      <div><b>${esc(S.label)}</b><span class="g-sub">دروازه‌ی رژیم — وضعیت ورود تازه در کل بازار</span></div>
+      <span class="g-mode" title="حالت دروازه از بخش تنظیمات پایش قابل تغییر است">${esc(GATE_MODES[gate.mode].label)}</span></div>
+    <div class="gate-bar" role="img" aria-label="سهم ارزهای مجاز، انتخابی و مسدود">
+      <span style="width:${(s.open||0)/n*100}%;background:${GATE_STATES.open.c}"></span>
+      <span style="width:${(s.watch||0)/n*100}%;background:${GATE_STATES.watch.c}"></span>
+      <span style="width:${(s.blocked||0)/n*100}%;background:${GATE_STATES.blocked.c}"></span>
+    </div>
+    <div class="gate-legend">
+      <span><i style="background:${GATE_STATES.open.c}"></i>مجاز: ${s.open||0}</span>
+      <span><i style="background:${GATE_STATES.watch.c}"></i>انتخابی: ${s.watch||0}</span>
+      <span><i style="background:${GATE_STATES.blocked.c}"></i>مسدود: ${s.blocked||0}</span>
+      ${s.exempt?`<span>مستثنا (استیبل/رَپ‌شده): ${s.exempt}</span>`:''}
+    </div>
+    <div class="gate-why">${m.reasons.map(r=>`<span>${esc(r)}</span>`).join('')}</div>`;
 }
 
 function renderChips(){
@@ -1075,14 +1294,15 @@ function renderList(){
         <div class="ind"><div>RSI<b style="color:${a.rsi<30?'var(--up)':a.rsi>70?'var(--down)':'inherit'}">${a.rsi?.toFixed(0)??'—'}</b></div><div>MACD<b class="${a.hist>=0?'up':'down'}">${a.hist>=0?'مثبت ▲':'منفی ▼'}</b></div><div>روند<b class="${a.pred>=0?'up':'down'}">${esc(a.trend)}</b></div></div>
         <div class="pred"><span>پیش‌بینی ۷ روز آینده</span><b class="${cls(a.pred)}">${pct(a.pred,1)}</b><span>اطمینان ${a.conf}٪</span></div>
         <div class="buyline"><span>💰 بهترین قیمت خرید</span><b>${fmtP(a.entry)}</b><span class="stbadge st-${a.buyState}">${esc(a.buyStateTxt)}</span></div>
+        ${a.gate&&!a.gate.exempt?`<div style="display:flex;justify-content:flex-end;margin-top:5px">${gateBadge(a.gate)}</div>`:''}
       </div>`; }).join('');
     requestAnimationFrame(()=>document.querySelectorAll('.spark').forEach(cv=>{ const c=state.coins.find(x=>x.id===cv.dataset.id); sparkline(cv,c.a.prices,c.a.ch7>=0?'#22c55e':'#ef4444'); }));
   } else {
-    sec.innerHTML=`<div class="tbl-wrap"><table><thead><tr><th>#</th><th>ارز</th><th>قیمت</th><th>۱ساعت</th><th>۲۴ساعت</th><th>۷روز</th><th>۳۰روز</th><th>نمودار ۷ روزه</th><th>RSI</th><th>MACD</th><th>امتیاز</th><th>امتیاز خرید</th><th>💰 بهترین قیمت خرید</th><th>وضعیت</th><th>طبقه</th><th>پیش‌بینی ۷ روزه</th><th>ریسک</th><th>ارزش بازار</th></tr></thead><tbody>
+    sec.innerHTML=`<div class="tbl-wrap"><table><thead><tr><th>#</th><th>ارز</th><th>قیمت</th><th>۱ساعت</th><th>۲۴ساعت</th><th>۷روز</th><th>۳۰روز</th><th>نمودار ۷ روزه</th><th>RSI</th><th>MACD</th><th>امتیاز</th><th>امتیاز خرید</th><th>💰 بهترین قیمت خرید</th><th>وضعیت</th><th title="دروازه‌ی رژیم: مجاز / انتخابی / مسدود">دروازه</th><th>طبقه</th><th>پیش‌بینی ۷ روزه</th><th>ریسک</th><th>ارزش بازار</th></tr></thead><tbody>
       ${l.map(c=>{const a=c.a,C=CATS[a.cat];return `<tr onclick="openModal('${esc(c.id)}')"><td>${esc(c.market_cap_rank)}</td><td><img src="${safeImg(c.image)}" alt=""><b>${esc(c.name)}</b> <small style="color:var(--muted)">${esc(c.symbol.toUpperCase())}</small>${a.kind!=='asset'?`<span class="kind">${KIND_LABEL[a.kind]}</span>`:''}</td><td>${fmtP(c.current_price)}</td>
       <td class="${cls(a.ch1)}">${pct(a.ch1,1)}</td><td class="${cls(a.ch24)}">${pct(a.ch24,1)}</td><td class="${cls(a.ch7)}">${pct(a.ch7,1)}</td><td class="${cls(a.ch30)}">${pct(a.ch30,1)}</td>
       <td><canvas class="spark" data-id="${esc(c.id)}" style="width:120px;height:34px;margin:0"></canvas></td><td>${a.rsi?.toFixed(0)??'—'}</td><td class="${a.hist>=0?'up':'down'}">${a.hist>=0?'▲':'▼'}</td>
-      <td><b style="color:${C.c}">${a.score}</b></td><td><b style="color:${a.gradeC}">${a.buyScore}</b> <small style="color:var(--muted)">${esc(a.grade)}</small></td><td><b style="color:var(--sbuy)">${fmtP(a.entry)}</b> <small style="color:var(--muted)">${pct(a.entryGap,1)}</small></td><td><span class="stbadge st-${a.buyState}">${esc(a.buyStateTxt)}</span></td><td><span class="cat" style="--catc:${C.c}">${C.label}</span></td><td class="${cls(a.pred)}">${pct(a.pred,1)} <small style="color:var(--muted)">(${a.conf}٪)</small></td><td>${esc(a.risk)}</td><td>${fmtBig(c.market_cap)}</td></tr>`}).join('')}
+      <td><b style="color:${C.c}">${a.score}</b></td><td><b style="color:${a.gradeC}">${a.buyScore}</b> <small style="color:var(--muted)">${esc(a.grade)}</small></td><td><b style="color:var(--sbuy)">${fmtP(a.entry)}</b> <small style="color:var(--muted)">${pct(a.entryGap,1)}</small></td><td><span class="stbadge st-${a.buyState}">${esc(a.buyStateTxt)}</span></td><td>${gateBadge(a.gate)}</td><td><span class="cat" style="--catc:${C.c}">${C.label}</span></td><td class="${cls(a.pred)}">${pct(a.pred,1)} <small style="color:var(--muted)">(${a.conf}٪)</small></td><td>${esc(a.risk)}</td><td>${fmtBig(c.market_cap)}</td></tr>`}).join('')}
       </tbody></table></div>`;
     requestAnimationFrame(()=>document.querySelectorAll('.spark').forEach(cv=>{ const c=state.coins.find(x=>x.id===cv.dataset.id); sparkline(cv,c.a.prices,c.a.ch7>=0?'#22c55e':'#ef4444'); }));
   }
@@ -1123,6 +1343,11 @@ function renderModalInfo(c){
     <div style="display:flex;justify-content:space-between;font-size:.75rem;color:var(--muted);margin-top:8px"><span>R/R با قیمت فعلی بازار: <b style="color:${a.rrNow>=1.5?'var(--up)':a.rrNow>=1?'var(--pot)':'var(--down)'}">${a.rrNow.toFixed(2)}:1</b></span><span>ریسک تا حد ضرر: <b class="down">−${a.riskPct.toFixed(1)}٪</b></span></div>
     ${a.rrNow<1?'<div style="font-size:.73rem;color:var(--pot);margin-top:4px">⚠️ خرید با قیمت فعلی نسبت ریسک/بازده کمتر از ۱ دارد — منتظر رسیدن به محدوده خرید بمانید.</div>':''}
     ${a.wideStop?'<div style="font-size:.73rem;color:var(--pot);margin-top:4px">⚠️ حمایت ساختاری بسیار دور بود؛ حد ضرر روی سقف ریسک ۱۵٪ محدود شد.</div>':''}
+    ${a.gate&&!a.gate.exempt?`<div class="gate-note" style="--gc:${GATE_STATES[a.gate.state].c}">
+      <b>${GATE_STATES[a.gate.state].icon} دروازه‌ی رژیم: ${esc(GATE_STATES[a.gate.state].label)}</b>
+      <ul>${a.gate.reasons.map(r=>`<li>${esc(r)}</li>`).join('')}</ul>
+      ${a.gate.need?`<div style="margin-top:5px;font-size:.7rem;color:var(--muted)">آستانه‌های فعلی دروازه: امتیاز خرید ≥ ${a.gate.need.score} • R/R با قیمت فعلی ≥ ${a.gate.need.rrNow.toFixed(1)} • قدرت نسبی به BTC ≥ ${a.gate.need.rs7>0?'+':''}${a.gate.need.rs7} • وضعیت ورود: ${a.gate.need.states.join(' / ')}</div>`:''}
+    </div>`:''}
     <div style="margin-top:10px;font-size:.75rem;color:var(--muted);border-top:1px dashed rgba(255,255,255,.12);padding-top:8px">🧮 لنگرهای محاسبه قیمت ورود: ${anchTxt}</div>
     <div style="margin-top:6px;font-size:.78rem">امتیاز فرصت خرید: <b style="color:${a.gradeC}">${a.buyScore}/100 (${esc(a.grade)})</b></div>`;
   $('#msr').innerHTML=`<div class="s">حمایت کلیدی<b>${fmtP(a.support)}</b><small>${pct((a.support/c.current_price-1)*100,1)}</small></div><div class="r">مقاومت کلیدی<b>${fmtP(a.resist)}</b><small>${pct((a.resist/c.current_price-1)*100,1)}</small></div><div style="background:rgba(255,255,255,.05)">ریسک<b>${esc(a.risk)}</b><small>نوسان ${a.dvol?.toFixed(1)}٪</small></div>`;
@@ -1207,14 +1432,23 @@ $('#mainChart').addEventListener('mouseleave',()=>$('#tip').style.display='none'
    رتبه‌بندی بهترین رمزارزها برای خرید + اعلام بهترین قیمت خرید
    ===================================================================== */
 function bestList(n=25){
-  return [...state.coins]
-    .filter(c=>c.a.ok && tradable(c) && c.market_cap>2e7 && c.total_volume>1e6)
-    .sort((x,y)=> y.a.buyScore-x.a.buyScore || y.a.score-x.a.score)
+  let l=[...state.coins]
+    .filter(c=>c.a.ok && tradable(c) && c.market_cap>2e7 && c.total_volume>1e6);
+  if(gate.onlyApproved) l=l.filter(c=>gatePermit(c,'open'));   // فقط مجازهای دروازه
+  return l
+    .sort((x,y)=> gateRank(x)-gateRank(y) || y.a.buyScore-x.a.buyScore || y.a.score-x.a.score)
     .slice(0,n);
 }
 
 function renderBest(){
-  const l=bestList(25); if(!l.length) return;
+  const l=bestList(25);
+  if(!l.length){
+    if(gate.onlyApproved){
+      $('#bestCards').innerHTML='<div class="empty" style="grid-column:1/-1;padding:28px">🚦 در حال حاضر هیچ ارزی از دروازه‌ی رژیم عبور نکرده است — یعنی شرایط بازار برای ورود تازه مناسب نیست.</div>';
+      $('#bestTblWrap').innerHTML='';
+    }
+    return;
+  }
   const medals=['🥇','🥈','🥉'];
   $('#bestCards').innerHTML=l.slice(0,3).map((c,i)=>{
     const a=c.a, C=CATS[a.cat];
@@ -1229,7 +1463,7 @@ function renderBest(){
         <div class="lbl">💰 بهترین قیمت خرید (نقطه ورود بهینه)</div>
         <div class="big">${fmtP(a.entry)}</div>
         <div class="zone">محدوده مطمئن: ${fmtP(a.entryLo)} تا ${fmtP(a.entryHi)} • قیمت فعلی ${fmtP(c.current_price)} (${pct(a.entryGap,2)} فاصله)</div>
-        <div style="margin-top:7px"><span class="stbadge st-${a.buyState}">${a.buyState==='now'?'🟢':a.buyState==='below'?'🔵':a.buyState==='wait'?'🟡':'⚪'} ${esc(a.buyStateTxt)}</span></div>
+        <div style="margin-top:7px;display:flex;gap:6px;flex-wrap:wrap;align-items:center"><span class="stbadge st-${a.buyState}">${a.buyState==='now'?'🟢':a.buyState==='below'?'🔵':a.buyState==='wait'?'🟡':'⚪'} ${esc(a.buyStateTxt)}</span>${gateBadge(a.gate)}</div>
       </div>
       <div class="lad">${a.ladder.map(s2=>`<div>${s2.t} (${s2.w}٪)<b>${fmtP(s2.p)}</b></div>`).join('')}</div>
       <div class="tri">
@@ -1252,7 +1486,7 @@ function renderBest(){
   }).join('');
 
   $('#bestTblWrap').innerHTML=`<div class="tbl-wrap" style="max-height:520px;overflow:auto"><table class="btbl">
-    <thead><tr><th>رتبه</th><th>ارز</th><th>امتیاز خرید</th><th>درجه</th><th>قیمت فعلی</th><th>💰 بهترین قیمت خرید</th><th>محدوده خرید</th><th>فاصله</th><th>وضعیت</th><th>حد ضرر</th><th>هدف ۱</th><th title="ریسک/بازده از نقطه ورود پلکانی">R/R</th><th title="ریسک/بازده اگر همین حالا با قیمت بازار بخرید">R/R فعلی</th><th title="قدرت نسبی ۷ روزه در برابر بیت‌کوین">RS/BTC</th><th>پیش‌بینی ۷روزه</th><th>طبقه</th></tr></thead><tbody>
+    <thead><tr><th>رتبه</th><th>ارز</th><th>امتیاز خرید</th><th>درجه</th><th>قیمت فعلی</th><th>💰 بهترین قیمت خرید</th><th>محدوده خرید</th><th>فاصله</th><th>وضعیت</th><th title="دروازه‌ی رژیم: مجاز / انتخابی / مسدود">دروازه</th><th>حد ضرر</th><th>هدف ۱</th><th title="ریسک/بازده از نقطه ورود پلکانی">R/R</th><th title="ریسک/بازده اگر همین حالا با قیمت بازار بخرید">R/R فعلی</th><th title="قدرت نسبی ۷ روزه در برابر بیت‌کوین">RS/BTC</th><th>پیش‌بینی ۷روزه</th><th>طبقه</th></tr></thead><tbody>
     ${l.map((c,i)=>{const a=c.a,C=CATS[a.cat];return `<tr onclick="openModal('${esc(c.id)}')">
       <td><b>${i+1}</b></td>
       <td><img src="${safeImg(c.image)}" alt=""><b>${esc(c.name)}</b> <small style="color:var(--muted)">${esc(c.symbol.toUpperCase())}</small></td>
@@ -1263,6 +1497,7 @@ function renderBest(){
       <td style="color:var(--muted);font-size:.75rem">${fmtP(a.entryLo)} – ${fmtP(a.entryHi)}</td>
       <td class="${a.entryGap>=0?'up':'down'}">${pct(a.entryGap,2)}</td>
       <td><span class="stbadge st-${a.buyState}">${esc(a.buyStateTxt)}</span></td>
+      <td>${gateBadge(a.gate)}</td>
       <td class="down">${fmtP(a.stop)}</td>
       <td class="up">${fmtP(a.tp1)}</td>
       <td>${a.rr.toFixed(1)}</td>
@@ -1300,23 +1535,34 @@ function pushAlert(c,kind,text,color,important){
 function detectEvents(){
   const isFirst = Object.keys(mon.prev).length===0;
   let fresh=0;
+  /* دروازه‌ی رژیم روی هشدارهای «ورود تازه» اثر می‌گذارد: در بازار بسته،
+     سیگنال خرید به‌جای تشویق به ورود، با برچسب هشدار ثبت می‌شود. */
+  const gOff   = gate.mode==='off';
+  const gMacro = state.gate ? state.gate.macro : null;
   state.coins.forEach(c=>{
     const a=c.a, pv=mon.prev[c.id];
     if(pv && a.ok){
       const watched=state.watch.includes(c.id);
       const pass = k => mon.filter==='all' || (mon.filter==='watch'? watched : k==='buy');
+      const allowed = gatePermit(c,'any');           // دروازه‌ی همین ارز
+      const halfOpen = !gOff && gMacro==='closed';   // دروازه‌ی کلان بسته
 
-      // ورود قیمت به محدوده بهترین خرید
+      // ورود قیمت به محدوده بهترین خرید — مشروط به دروازه‌ی رژیم
       if(pv.buyState!=='now' && a.buyState==='now' && pass('buy')){
-        pushAlert(c,'buy',`وارد محدوده خرید شد — بهترین قیمت ${fmtP(a.entry)}`, '#00e676', true); fresh++;
+        if(allowed){
+          pushAlert(c,'buy',`${halfOpen?'⚠️ دروازه بسته — فقط پله‌ی کوچک: ':''}وارد محدوده خرید شد — بهترین قیمت ${fmtP(a.entry)}`,
+                    halfOpen?'#fbbf24':'#00e676', !halfOpen); fresh++;
+        } else {
+          pushAlert(c,'risk',`🛑 دروازه‌ی رژیم اجازه ورود نداد — ${(a.gate&&a.gate.reasons[0])||'شرط ورود برقرار نیست'}`, '#ef4444', watched); fresh++;
+        }
       }
       // ارتقا به خرید قوی
-      if(pv.cat!=='sbuy' && a.cat==='sbuy' && pass('buy')){
-        pushAlert(c,'buy',`ارتقا به «خرید قوی» (امتیاز ${a.score})`, '#00e676', true); fresh++;
+      if(pv.cat!=='sbuy' && a.cat==='sbuy' && pass('buy') && allowed){
+        pushAlert(c,'buy',`ارتقا به «خرید قوی» (امتیاز ${a.score})${halfOpen?' — دروازه بسته است':''}`, halfOpen?'#fbbf24':'#00e676', !halfOpen); fresh++;
       }
       // ورود به تاپ ۳ لیدربورد
-      if(pv.buyScore<74 && a.buyScore>=74 && pass('buy')){
-        pushAlert(c,'buy',`امتیاز فرصت خرید به ${a.buyScore} (${esc(a.grade)}) رسید`, '#4ade80', true); fresh++;
+      if(pv.buyScore<74 && a.buyScore>=74 && pass('buy') && allowed){
+        pushAlert(c,'buy',`امتیاز فرصت خرید به ${a.buyScore} (${esc(a.grade)}) رسید${halfOpen?' — دروازه بسته است':''}`, '#4ade80', !halfOpen); fresh++;
       }
       // کراس‌ها
       if(pv.macdCross!=='bull' && a.macdCross==='bull' && pass('buy')){
@@ -1350,6 +1596,15 @@ function detectEvents(){
     if(btc){ pushAlert(btc,R.k==='riskoff'?'risk':'sig',`تغییر رژیم بازار به «${R.label}» ${R.icon}`, R.c, true); fresh++; }
   }
   if(state.regime) mon.prevRegime=state.regime.k;
+  // تغییر وضعیت دروازه‌ی رژیم — رویداد عملیاتی (باز/بسته شدن مجوز ورود)
+  if(state.gate && mon.prevGate && mon.prevGate!==state.gate.state){
+    const S=GATE_STATES[state.gate.state], btc=state.coins.find(c=>c.id==='bitcoin');
+    const verb = state.gate.state==='open' ? 'باز شد — ورود تازه مجاز است'
+               : state.gate.state==='watch' ? 'انتخابی شد — فقط سِتاپ‌های تأییدشده'
+               : 'بسته شد — ورود تازه توصیه نمی‌شود';
+    if(btc){ pushAlert(btc, state.gate.state==='blocked'?'risk':'sig', `🚦 دروازه‌ی رژیم ${verb} ${S.icon}`, S.c, true); fresh++; }
+  }
+  if(state.gate) mon.prevGate=state.gate.state;
   if(isFirst){
     const top=bestList(3);
     top.forEach(c=>pushAlert(c,'buy',`شروع پایش — بهترین قیمت خرید ${fmtP(c.a.entry)} (امتیاز ${c.a.buyScore})`, '#7c5cff', false));
@@ -1505,7 +1760,9 @@ function renderPerf(){
 
 function perfCycle(){
   perfEvaluate();
-  state.coins.forEach(c=>{ if(c.a.ok && tradable(c) && (c.a.cat==='sbuy' || c.a.buyScore>=78)) perfOpen(c); });
+  /* کارنامه فقط سیگنال‌هایی را ثبت می‌کند که از دروازه‌ی رژیم عبور کرده باشند؛
+     در غیر این صورت دقت سیگنال‌ها با ورودهای خلاف جهت بازار مخدوش می‌شود. */
+  state.coins.forEach(c=>{ if(c.a.ok && tradable(c) && (c.a.cat==='sbuy' || c.a.buyScore>=78) && gatePermit(c,'open')) perfOpen(c); });
   perfSave(); renderPerf();
 }
 
@@ -1623,10 +1880,11 @@ function renderCalc(c){
 function exportCSV(){
   const l=bestList(25);
   if(!l.length){ toast('⚠️ هنوز داده‌ای برای خروجی وجود ندارد'); return; }
-  const head=['رتبه','نام','نماد','رتبه بازار','قیمت فعلی (USD)','بهترین قیمت خرید','کف محدوده','سقف محدوده','فاصله تا ورود %','وضعیت','پله ۱','پله ۲','پله ۳','میانگین ورود','حد ضرر','هدف ۱','هدف ۲','ریسک/بازده','ریسک/بازده با قیمت فعلی','قدرت نسبی ۷روزه به BTC %','امتیاز خرید','درجه','امتیاز تکنیکال','طبقه','RSI','پیش‌بینی ۷ روزه %','اطمینان %','نوسان روزانه %','ارزش بازار'];
+  const head=['رتبه','نام','نماد','رتبه بازار','قیمت فعلی (USD)','بهترین قیمت خرید','کف محدوده','سقف محدوده','فاصله تا ورود %','وضعیت','دروازه‌ی رژیم','دلیل دروازه','پله ۱','پله ۲','پله ۳','میانگین ورود','حد ضرر','هدف ۱','هدف ۲','ریسک/بازده','ریسک/بازده با قیمت فعلی','قدرت نسبی ۷روزه به BTC %','امتیاز خرید','درجه','امتیاز تکنیکال','طبقه','RSI','پیش‌بینی ۷ روزه %','اطمینان %','نوسان روزانه %','ارزش بازار'];
   const cell=v=>{ const t=String(v==null?'':v); return /[",\n;]/.test(t)? '"'+t.replace(/"/g,'""')+'"' : t; };
   const rows=l.map((c,i)=>{ const a=c.a; return [i+1,c.name,c.symbol.toUpperCase(),c.market_cap_rank,
     c.current_price,a.entry,a.entryLo,a.entryHi,a.entryGap.toFixed(2),a.buyStateTxt,
+    a.gate&&!a.gate.exempt?GATE_STATES[a.gate.state].short:'مستثنا', a.gate?a.gate.reasons.join(' | '):'',
     a.ladder[0]?.p,a.ladder[1]?.p,a.ladder[2]?.p,a.avgEntry,a.stop,a.tp1,a.tp2,a.rr.toFixed(2),a.rrNow?.toFixed(2),a.rs7?.toFixed(2),
     a.buyScore,a.grade,a.score,CATS[a.cat].label,a.rsi?.toFixed(1),a.pred.toFixed(2),a.conf,
     a.dvol?.toFixed(2),c.market_cap].map(cell).join(','); });
@@ -1642,6 +1900,15 @@ function exportCSV(){
 /* ------------------------- Events ------------------------- */
 $('#refreshBtn').onclick=()=>loadAll(true);
 $('#csvBtn').onclick=exportCSV;
+$('#gateOnlyBtn').onclick=()=>{
+  gate.onlyApproved=!gate.onlyApproved; gate.save(); syncGateUI(); renderBest();
+  toast(gate.onlyApproved?'🚦 فقط ارزهای دارای مجوز دروازه نمایش داده می‌شوند':'🚦 فیلتر دروازه خاموش شد — همه‌ی ارزها نمایش داده می‌شوند');
+};
+$('#gateMode').onchange=e=>{
+  gate.mode=e.target.value; gate.save(); syncGateUI();
+  if(state.coins.length){ applyMarketContext(); renderAll(); }   // باز ارزیابی دروازه با حالت تازه
+  toast(`🚦 دروازه‌ی رژیم: ${GATE_MODES[gate.mode].label}`);
+};
 $('#cmpClear').onclick=()=>{ state.cmp=[]; cmpSave(); renderCmp(); renderList(); toast('مقایسه پاک شد'); };
 $('#perfReset').onclick=()=>{ if(!perf.rec.length){ toast('کارنامه خالی است'); return; } perf.rec=[]; perfSave(); renderPerf(); toast('🗑️ کارنامه عملکرد پاک شد'); };
 $('#q').oninput=e=>{state.q=e.target.value.trim();renderList();};
@@ -1657,6 +1924,7 @@ let rz; window.addEventListener('resize',()=>{ clearTimeout(rz); rz=setTimeout((
 /* ------------------------- Boot ------------------------- */
 renderAlerts();
 renderPerf();
+syncGateUI();
 setMon(true);
 loadAll();
 setInterval(tick, 1000);            // شمارنده معکوس + تریگر واکشی چرخه بعد
