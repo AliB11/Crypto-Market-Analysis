@@ -596,8 +596,14 @@ const WRAPPED_RE = /^(w|cb|st|wst|r|ws|we|rs|ez|tb|lb|solv|pump|m|bn|k|ib)?(btc|
 function assetKind(c){
   const sym=String(c.symbol||'').toLowerCase(), name=String(c.name||'').toLowerCase();
   if(STABLE_RE.test(sym) || /\b(usd|stable|dollar)\b/.test(name) && Math.abs((c.current_price||0)-1)<0.05) return 'stable';
-  // شناسایی رفتاری: قیمت ~۱ دلار و نوسان ۷ روزه‌ی ناچیز
-  if(Math.abs((c.current_price||0)-1)<0.02 && Math.abs(c.price_change_percentage_7d_in_currency||0)<0.8 && Math.abs(c.price_change_percentage_24h_in_currency||0)<0.5) return 'stable';
+  /* شناسایی رفتاری: قیمت ~۱ دلار + دامنه‌ی هفتگی زیر ۱٪ (از روی سری قیمت، نه
+     درصدهای گزارش‌شده). یک دارایی واقعی ~۱ دلاری هرگز یک هفته کامل را در بازه‌ی
+     ۱٪ نمی‌ماند، ولی استیبل‌کوین همیشه می‌ماند؛ پس خطای مثبت عملاً حذف می‌شود. */
+  if(Math.abs((c.current_price||0)-1)<0.02){
+    const sp=(c.sparkline_in_7d?.price||[]).filter(x=>x!=null&&isFinite(x));
+    if(sp.length>10){ const mx=Math.max(...sp), mn=Math.min(...sp); if(mn>0 && mx/mn-1<0.01) return 'stable'; }
+    else if(Math.abs(c.price_change_percentage_7d_in_currency||0)<0.3 && Math.abs(c.price_change_percentage_24h_in_currency||0)<0.2) return 'stable';
+  }
   if(['btc','eth','sol','bnb'].includes(sym)) return 'asset';
   if(WRAPPED_RE.test(sym) || /wrapped|staked|liquid staking|restak/.test(name)) return 'wrapped';
   return 'asset';
@@ -643,11 +649,20 @@ const GATE_MODES={
 };
 /* آستانه‌های کمی دروازه به تفکیک وضعیت کلان بازار.
    score = حداقل امتیاز فرصت خرید، rrNow = حداقل ریسک/بازده با قیمت فعلی،
-   rs7 = حداقل قدرت نسبی ۷ روزه به BTC، states = وضعیت‌های مجاز محدوده خرید */
+   rs7 = حداقل قدرت نسبی ۷ روزه به BTC، states = وضعیت‌های مجاز محدوده خرید.
+   این آستانه‌ها بر پایه توزیع اندازه‌گیری‌شده‌ی واقعی کالیبره شده‌اند (نمونه ۲۴۰ ارزی
+   در ۶ بازار سقوط + ۲۵۵ ارزی در بازارهای عادی):
+   • rrNow تقریباً تابعی از ساخت tp1/stop است نه شرایط بازار؛ در سقوط همه بین
+     ۱٫۴ و ۱٫۵ و در بازار عادی میانه‌اش ۱٫۵۰ است، پس آستانه‌ی ۲٫۰ هرگز reachable
+     نبود و مسیر استثنا را مرده می‌کرد → ۱٫۳ گذاشته شد تا معیارِ تمایز نباشد.
+   • در سقوط هیچ ارزی به امتیاز ۷۰ یا حتی ۶۲ نمی‌رسد (تعدیل رژیم ۷− است)، پس
+     کف امتیاز در وضعیت «بسته» عمداً پایین‌تر از «انتخابی» است؛ معیارِ اصلیِ
+     تمایز در ریزش، «قدرت نسبی به BTC ≥ ۵+٪» است (فقط ۷٫۵٪ بازار).
+     ترکیب نهایی در سقوط ≈ ۰٫۴٪ بازار را مجاز می‌کند: رهبران، نه همه. */
 const GATE_RULES={
   open   :{score:58, rrNow:1.0, rs7:-2.0, states:['now','below','wait']},
-  watch  :{score:66, rrNow:1.5, rs7: 0.0, states:['now','below']},
-  closed :{score:74, rrNow:2.0, rs7: 5.0, states:['now','below']}
+  watch  :{score:66, rrNow:1.3, rs7: 0.0, states:['now','below']},
+  closed :{score:55, rrNow:1.3, rs7: 5.0, states:['now','below']}
 };
 /* افزایش آستانه‌ها در حالت سخت‌گیرانه */
 const GATE_STRICT={score:6, rrNow:0.5, rs7:1.5};
@@ -674,8 +689,8 @@ function evalMarketGate(R){
     macro='watch'; reasons.push(`طمع شدید (${R.fng}) با گستردگی ${(R.breadth*100).toFixed(0)}٪ — فقط ورود انتخابی`);
   }
   // گاردریل ۲ — گستردگی فروپاشیده: «خنثی» در عمل یعنی بازار در حال ریختن
-  if(macro==='watch' && R.breadth<0.2 && R.pts<=-2){
-    macro='closed'; reasons.push('گستردگی زیر ۲۰٪ با امتیاز رژیم منفی — دروازه بسته شد');
+  if(macro==='watch' && (R.breadth<0.2 || R.above<0.15) && R.pts<=-2){
+    macro='closed'; reasons.push(`گستردگی ${(R.breadth*100).toFixed(0)}٪ و فقط ${(R.above*100).toFixed(0)}٪ بالای SMA20 با امتیاز رژیم منفی — دروازه بسته شد`);
   }
   // گاردریل ۳ — ترس شدید: دروازه را برای انباشت پله‌ای ارزهای بزرگ نیمه‌باز می‌کند
   if(macro==='closed' && R.fng!=null && R.fng<=18){
@@ -704,6 +719,7 @@ function evalCoinGate(c, mkt){
   const need={ score:rules.score+st.score, rrNow:rules.rrNow+st.rrNow, rs7:rules.rs7+st.rs7, states:rules.states };
   out.need=need;
   const isBtc = c.id==='bitcoin';
+  out.rsExempt = isBtc;   // بیت‌کوین مرجع رژیم است، پس شرط قدرت نسبی درباره‌اش معنا ندارد
   if(a.buyScore<need.score)  out.fails.push(`امتیاز فرصت خرید ${a.buyScore} کمتر از آستانه‌ی ${need.score}`);
   if(!(a.rrNow>=need.rrNow)) out.fails.push(`ریسک/بازده با قیمت فعلی ${a.rrNow.toFixed(2)} کمتر از ${need.rrNow.toFixed(1)}`);
   if(!isBtc && !(a.rs7>=need.rs7)) out.fails.push(`قدرت نسبی به BTC ${pct(a.rs7,1)} ضعیف‌تر از آستانه‌ی ${need.rs7>0?'+':''}${need.rs7}`);
@@ -799,7 +815,7 @@ function analyze(c){
   const {macd,signal,hist}=MACD(p); a.macd=last(macd); a.sig=last(signal); a.hist=last(hist); a.histPrev=prev(hist);
   const sma20=SMA(p,20), sma50=SMA(p,50); a.sma20=last(sma20); a.sma50=last(sma50);
   const ema20=EMA(p,20); a.ema20=last(ema20);
-  const bb=BB(p,20,2); a.bbUp=last(bb.up); a.bbLo=last(bb.lo); a.bbPos=(lastP-a.bbLo)/((a.bbUp-a.bbLo)||1);
+  const bb=BB(p,20,2); a.bbUp=last(bb.up); a.bbLo=last(bb.lo); a.bbPos=clamp((lastP-a.bbLo)/((a.bbUp-a.bbLo)||1), -1, 2);   // در باند بسیار باریک کران‌دار می‌ماند
   a.bbWidth=(a.bbUp-a.bbLo)/a.sma20*100;
   const lr=linreg(p.slice(-48)); a.slopeH=lr.rel*100; // % per hour
   const lr7=linreg(p); a.slope7=lr7.rel*100;
@@ -978,8 +994,12 @@ function buyPlan(a, c, lastP, p){
   const k = clamp(0.5 + bias*0.5, 0.05, 0.95);
   let entry = base + (mkt-base)*clamp(k,0,1);
 
-  // «بهترین قیمت خرید» هرگز بالاتر از قیمت لحظه‌ای بازار پیشنهاد نمی‌شود
-  entry = Math.min(entry, mkt);
+  // «بهترین قیمت خرید» هرگز بالاتر از قیمت لحظه‌ای بازار پیشنهاد نمی‌شود.
+  // اگر میانگین لنگرها بالای قیمت روز باشد (حالت معمول در روند نزولی)، چسباندن
+  // نقطه ورود به قیمت روز یعنی «همین حالا بخر» — که خلاف هدف این موتور است؛
+  // پس در این حالت دست‌کم نیم‌تخفیفِ نوسان روزانه مطالبه می‌شود.
+  const halfBandRaw = clamp(a.dvol*0.45, 0.4, 4.5)/100;
+  entry = Math.min(entry, base>mkt ? mkt*(1-halfBandRaw*0.5) : mkt);
   // کف منطقی: بیش از ۳ برابر نوسان روزانه پایین‌تر نرو (غیرقابل دسترس می‌شود)
   entry = Math.max(entry, mkt*(1-clamp(a.dvol,1,12)*3/100));
 
@@ -1029,7 +1049,7 @@ function buyPlan(a, c, lastP, p){
   b += clamp(a.rr-1,-1,3)*3.2;                              // مازاد نسبت ریسک/بازده بر ۱
   b += clamp(-a.entryGap,0,6)*1.1;                          // عمق تخفیف نقطه ورود
   b += clamp(a.conf-50,-25,35)*0.11;                        // اطمینان سیگنال
-  b += clamp(Math.log10((c.market_cap||1)/1e8),-2,2.5)*1.6; // نقدشوندگی و اعتبار
+  b += clamp(Math.log10(Math.max(1,(c.market_cap||1))/1e8),-2,2.5)*1.6; // نقدشوندگی و اعتبار (log10 از مقدار نامثبت → NaN می‌شد)
   b -= clamp(a.dvol-4,0,12)*1.15;                           // جریمه نوسان افراطی
   b -= clamp(a.rsi-68,0,32)*0.28;                           // جریمه اشباع خرید
   if(a.buyState==='now')   b+=5;
@@ -1061,7 +1081,10 @@ function setGrade(a){
 function applyMarketContext(){
   const cs=state.coins.filter(tradable).filter(c=>c.a.ok);
   const btc=state.coins.find(c=>c.id==='bitcoin' && c.a.ok);
-  const bull=cs.filter(c=>['sbuy','buy','pot'].includes(c.a.cat)).length, breadth=cs.length? bull/cs.length : 0.5;
+  // فقط «خرید» و «خرید قوی» صعودی شمرده می‌شوند. پیش‌تر «pot» هم صعودی بود،
+  // ولی در capitulation همه‌ی ارزها به‌خاطر RSI اشباع‌فروش «pot» می‌شوند و
+  // گستردگی در اوج ریزش ۱۰۰٪ مثبت گزارش می‌شد.
+  const bull=cs.filter(c=>c.a.cat==='sbuy'||c.a.cat==='buy').length, breadth=cs.length? bull/cs.length : 0.5;
   const above=cs.filter(c=>c.current_price>c.a.sma20).length/(cs.length||1);
   let pts=0, why=[];
   if(btc){
@@ -1184,8 +1207,8 @@ function renderPulse(){
   const counts={}; Object.keys(CATS).forEach(k=>counts[k]=0); cs.forEach(c=>counts[c.a.cat]++);
   const n=cs.length; $('#breadthBar').innerHTML=Object.keys(CATS).map(k=>`<span style="width:${counts[k]/n*100}%;background:${CATS[k].c}" title="${CATS[k].label}"></span>`).join('');
   $('#breadthLegend').innerHTML=Object.keys(CATS).map(k=>`<span><i style="background:${CATS[k].c}"></i>${CATS[k].label}: ${counts[k]}</span>`).join('');
-  const bull=counts.sbuy+counts.buy+counts.pot, bear=counts.sell+counts.ssell;
-  $('#breadthTxt').textContent=`${Math.round(bull/n*100)}٪ مثبت / ${Math.round(bear/n*100)}٪ منفی`;
+  const bull=counts.sbuy+counts.buy, bear=counts.sell+counts.ssell, neut=n-bull-bear;
+  $('#breadthTxt').textContent=`${Math.round(bull/n*100)}٪ مثبت / ${Math.round(bear/n*100)}٪ منفی / ${Math.round(neut/n*100)}٪ خنثی`;
   // top signals
   const top=[...cs].sort((a,b)=>b.a.score-a.a.score).slice(0,4);
   const bottom=[...cs].sort((a,b)=>a.a.score-b.a.score).slice(0,2);
@@ -1346,7 +1369,7 @@ function renderModalInfo(c){
     ${a.gate&&!a.gate.exempt?`<div class="gate-note" style="--gc:${GATE_STATES[a.gate.state].c}">
       <b>${GATE_STATES[a.gate.state].icon} دروازه‌ی رژیم: ${esc(GATE_STATES[a.gate.state].label)}</b>
       <ul>${a.gate.reasons.map(r=>`<li>${esc(r)}</li>`).join('')}</ul>
-      ${a.gate.need?`<div style="margin-top:5px;font-size:.7rem;color:var(--muted)">آستانه‌های فعلی دروازه: امتیاز خرید ≥ ${a.gate.need.score} • R/R با قیمت فعلی ≥ ${a.gate.need.rrNow.toFixed(1)} • قدرت نسبی به BTC ≥ ${a.gate.need.rs7>0?'+':''}${a.gate.need.rs7} • وضعیت ورود: ${a.gate.need.states.join(' / ')}</div>`:''}
+      ${a.gate.need?`<div style="margin-top:5px;font-size:.7rem;color:var(--muted)">آستانه‌های فعلی دروازه: امتیاز خرید ≥ ${a.gate.need.score} • R/R با قیمت فعلی ≥ ${a.gate.need.rrNow.toFixed(1)} ${a.gate.rsExempt?'':`• قدرت نسبی به BTC ≥ ${a.gate.need.rs7>0?'+':''}${a.gate.need.rs7} `}• وضعیت ورود: ${a.gate.need.states.join(' / ')}</div>`:''}
     </div>`:''}
     <div style="margin-top:10px;font-size:.75rem;color:var(--muted);border-top:1px dashed rgba(255,255,255,.12);padding-top:8px">🧮 لنگرهای محاسبه قیمت ورود: ${anchTxt}</div>
     <div style="margin-top:6px;font-size:.78rem">امتیاز فرصت خرید: <b style="color:${a.gradeC}">${a.buyScore}/100 (${esc(a.grade)})</b></div>`;
@@ -1614,11 +1637,19 @@ function detectEvents(){
   if(fresh) toast(`🔔 ${fresh} رویداد تازه در پایش مداوم ثبت شد`);
 }
 
+/* فیلتر انتخاب‌شده روی تاریخچه‌ی ذخیره‌شده هم اعمال می‌شود، نه فقط رویدادهای تازه */
+function alertVisible(a){
+  if(mon.filter==='all') return true;
+  if(mon.filter==='watch') return state.watch.includes(a.id);
+  return a.kind==='buy' || a.kind==='sig';   // «فقط فرصت‌های خرید»
+}
+
 function renderAlerts(){
   const box=$('#alerts');
-  if(!mon.alerts.length){ box.innerHTML='<div class="empty" style="padding:24px;font-size:.8rem">رویدادی مطابق فیلتر فعلی ثبت نشده است.</div>'; $('#alCount').textContent=''; return; }
-  $('#alCount').textContent=`(${mon.alerts.length} رویداد)`;
-  box.innerHTML=mon.alerts.slice(0,60).map(a=>`<div class="al" style="--alc:${a.color}" onclick="openModal('${esc(a.id)}')">
+  const list=mon.alerts.filter(alertVisible);
+  if(!list.length){ box.innerHTML='<div class="empty" style="padding:24px;font-size:.8rem">رویدادی مطابق فیلتر فعلی ثبت نشده است.</div>'; $('#alCount').textContent=''; return; }
+  $('#alCount').textContent=`(${list.length} رویداد)`;
+  box.innerHTML=list.slice(0,60).map(a=>`<div class="al" style="--alc:${a.color}" onclick="openModal('${esc(a.id)}')">
     <img src="${safeImg(a.img)}" alt=""><div class="t"><b>${esc(a.sym)}</b> — ${esc(a.text)}</div><span class="tm">${faTime(a.t)}</span></div>`).join('');
 }
 
@@ -1649,7 +1680,7 @@ $('#swMon').onclick=()=>{ setMon(!mon.on); toast(mon.on?'▶️ پایش مدا�
 $('#ivSel').onchange=e=>{ mon.iv=+e.target.value; mon.left=mon.iv; $('#monHint').textContent=`هر ${mon.iv} ثانیه یک بار کل بازار واکشی و تحلیل می‌شود`; toast(`⏱️ فاصله بررسی روی ${mon.iv} ثانیه تنظیم شد`); };
 $('#swSound').onclick=()=>{ mon.sound=!mon.sound; $('#swSound').classList.toggle('on',mon.sound); if(mon.sound) beep(); };
 $('#swNotif').onclick=async()=>{ if(!mon.notif){ try{ const p2=await Notification.requestPermission(); mon.notif=(p2==='granted'); if(!mon.notif) toast('⚠️ اجازه اعلان داده نشد'); }catch(e){ toast('⚠️ مرورگر از اعلان پشتیبانی نمی‌کند'); } } else mon.notif=false; $('#swNotif').classList.toggle('on',mon.notif); };
-$('#alFilter').onchange=e=>{ mon.filter=e.target.value; toast('🔎 فیلتر هشدارها بروزرسانی شد'); };
+$('#alFilter').onchange=e=>{ mon.filter=e.target.value; renderAlerts(); toast('🔎 فیلتر هشدارها بروزرسانی شد'); };
 $('#clearAl').onclick=()=>{ mon.alerts=[]; localStorage.removeItem('cb_alerts'); renderAlerts(); toast('🗑️ تاریخچه هشدارها پاک شد'); };
 
 /* =====================================================================
