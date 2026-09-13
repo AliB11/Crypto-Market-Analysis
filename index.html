@@ -67,8 +67,20 @@
   .stat .bgico{position:absolute;left:-6px;bottom:-10px;font-size:3.5rem;opacity:.07}
   .up{color:var(--up)} .down{color:var(--down)}
 
-  .pulse-grid{display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:14px}
-  @media(max-width:1000px){.pulse-grid{grid-template-columns:1fr}}
+  .pulse-grid{display:grid;grid-template-columns:1.2fr 1fr 1fr 1fr;gap:14px}
+  @media(max-width:1300px){.pulse-grid{grid-template-columns:1fr 1fr}}
+  @media(max-width:800px){.pulse-grid{grid-template-columns:1fr}}
+  .regime{display:flex;align-items:center;gap:12px}
+  .regime .rico{width:54px;height:54px;border-radius:16px;display:grid;place-items:center;font-size:1.6rem;background:color-mix(in srgb,var(--rc) 18%,transparent);border:1px solid color-mix(in srgb,var(--rc) 45%,transparent);box-shadow:0 0 24px -6px var(--rc)}
+  .regime .rlbl{font-weight:900;font-size:1.05rem;color:var(--rc)}
+  .regime .rsub{font-size:.75rem;color:var(--muted);margin-top:2px}
+  .rwhy{margin-top:10px;display:flex;flex-direction:column;gap:4px;font-size:.73rem;color:var(--muted)}
+  .rwhy span::before{content:'•';margin-left:6px;color:var(--rc)}
+  .rhint{margin-top:10px;font-size:.76rem;line-height:1.7;border-top:1px dashed rgba(255,255,255,.1);padding-top:8px}
+  .kind{display:inline-block;font-size:.62rem;font-weight:700;padding:1px 7px;border-radius:6px;background:rgba(148,163,184,.15);color:#94a3b8;margin-right:4px;vertical-align:middle}
+  .rs{font-variant-numeric:tabular-nums}
+  .ctxsig{margin-top:10px;padding:10px 12px;border-radius:12px;background:rgba(255,255,255,.04);border:1px dashed rgba(255,255,255,.12);font-size:.78rem}
+  .ctxsig div{display:flex;justify-content:space-between;gap:8px;padding:3px 0}
   .panel{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:18px;backdrop-filter:blur(10px)}
   .panel h3{font-size:.95rem;margin-bottom:10px;display:flex;align-items:center;gap:8px}
   .gauge-wrap{display:flex;align-items:center;gap:18px}
@@ -349,6 +361,12 @@
           <div class="legend" id="breadthLegend"></div>
         </div>
       </div>
+      <div class="panel" id="regimePanel">
+        <h3>🧭 رژیم بازار</h3>
+        <div class="regime" style="--rc:#94a3b8"><div class="rico">⏳</div><div><div class="rlbl">در حال محاسبه…</div><div class="rsub">بر پایه ساختار بیت‌کوین و گستردگی بازار</div></div></div>
+        <div class="rwhy" id="regimeWhy"></div>
+        <div class="rhint" id="regimeHint"></div>
+      </div>
       <div class="panel">
         <h3>😱 شاخص ترس و طمع</h3>
         <div class="gauge-wrap">
@@ -379,7 +397,7 @@
   <!-- Best coins to buy -->
   <section id="bestSec">
     <div class="sec-title"><span class="bar"></span>🏆 بهترین رمزارزها برای خرید
-      <button class="btn" id="csvBtn" style="margin-right:auto;font-size:.78rem" aria-label="دریافت خروجی CSV از جدول بهترین‌ها">⬇️ خروجی CSV</button> <span class="hint">رتبه‌بندی بر پایه «امتیاز فرصت خرید» = تکنیکال + پیش‌بینی + نسبت ریسک/بازده + فاصله تا نقطه ورود + نقدشوندگی</span></div>
+      <button class="btn" id="csvBtn" style="margin-right:auto;font-size:.78rem" aria-label="دریافت خروجی CSV از جدول بهترین‌ها">⬇️ خروجی CSV</button> <span class="hint">رتبه‌بندی بر پایه «امتیاز فرصت خرید» = تکنیکال + پیش‌بینی + ریسک/بازده + فاصله تا ورود + نقدشوندگی + رژیم بازار + قدرت نسبی به BTC • استیبل‌کوین‌ها و توکن‌های رَپ‌شده حذف شده‌اند</span></div>
     <div class="best-grid" id="bestCards"></div>
     <div id="bestTblWrap"></div>
   </section>
@@ -464,6 +482,7 @@
         <option value="pred">پیش‌بینی ۷ روزه</option>
         <option value="rsi">RSI</option>
         <option value="vol">نوسان</option>
+        <option value="rs">قدرت نسبی به BTC</option>
       </select>
       <button class="chip" id="watchChip" style="--chipc:#fbbf24">⭐ علاقه‌مندی‌ها <span class="c" id="watchCount">0</span></button>
     </div>
@@ -536,6 +555,33 @@ const CATS = {
 const state = {coins:[], global:null, fng:null, filter:'all', q:'', sort:'buy', view:'cards',
   watch: (()=>{try{return JSON.parse(localStorage.getItem('cb_watch')||'[]')}catch(e){return []}})(), watchOnly:false, modalCoin:null, tf:7, chartCache:{}};
 
+/* ---------------------------------------------------------------------
+   طبقه‌بندی نوع دارایی — استیبل‌کوین‌ها و توکن‌های رَپ‌شده/استیک‌شده
+   (WBTC, stETH, …) معامله‌ی تکنیکال مستقل ندارند و نباید در رتبه‌بندی
+   «بهترین خرید»، گستردگی بازار یا کارنامه سیگنال‌ها لحاظ شوند.
+   --------------------------------------------------------------------- */
+const STABLE_RE = /^(usdt|usdc|dai|fdusd|tusd|usde|usds|pyusd|usdd|frax|busd|gusd|lusd|usdp|susd|eurc|eurt|usd1|usd0|usdy|usdb|bfusd|rlusd|usdtb|susde|susds|ustc|xaut|paxg|cusd|buidl|ousg|crvusd|gho|dola|mim|usdx|usda|ausd|deusd|usr|ustb|bsc-usd)$/i;
+const WRAPPED_RE = /^(w|cb|st|wst|r|ws|we|rs|ez|tb|lb|solv|pump|m|bn|k|ib)?(btc|eth|sol|bnb|tao)$|^(weth|wbtc|steth|wsteth|cbbtc|cbeth|reth|weeth|rseth|ezeth|tbtc|lbtc|solvbtc|frxeth|sfrxeth|meth|bnsol|jitosol|msol|jupsol|bbsol|wbnb|wbeth|sweth|oseth|lseth|ankreth|beth|hbtc|renbtc|kelp|xsolvbtc|wtao|clbtc|pumpbtc|fbtc|unibtc|sbtc|wsol|weth\.e|wbtc\.e)$/i;
+function assetKind(c){
+  const sym=String(c.symbol||'').toLowerCase(), name=String(c.name||'').toLowerCase();
+  if(STABLE_RE.test(sym) || /\b(usd|stable|dollar)\b/.test(name) && Math.abs((c.current_price||0)-1)<0.05) return 'stable';
+  // شناسایی رفتاری: قیمت ~۱ دلار و نوسان ۷ روزه‌ی ناچیز
+  if(Math.abs((c.current_price||0)-1)<0.02 && Math.abs(c.price_change_percentage_7d_in_currency||0)<0.8 && Math.abs(c.price_change_percentage_24h_in_currency||0)<0.5) return 'stable';
+  if(['btc','eth','sol','bnb'].includes(sym)) return 'asset';
+  if(WRAPPED_RE.test(sym) || /wrapped|staked|liquid staking|restak/.test(name)) return 'wrapped';
+  return 'asset';
+}
+const KIND_LABEL={stable:'استیبل‌کوین',wrapped:'رَپ‌شده / استیک‌شده',asset:''};
+/* دارایی‌های قابل معامله‌ی تکنیکال */
+const tradable = c => c.a && c.a.kind==='asset';
+
+/* رژیم بازار — نتیجه‌ی تحلیل بیت‌کوین + گستردگی بازار؛ در هر چرخه محاسبه می‌شود */
+const REGIMES = {
+  riskon : {k:'riskon', label:'ریسک‌پذیر (Risk-On)',  icon:'🟢', c:'#00e676', adj:+4, hint:'بیت‌کوین در ساختار صعودی و اکثریت بازار مثبت — ورود پله‌ای روی آلت‌های پیشرو منطقی است.'},
+  neutral: {k:'neutral',label:'خنثی / انتخابی',       icon:'🟡', c:'#fbbf24', adj:0,  hint:'ساختار مختلط — فقط سِتاپ‌های با قدرت نسبی مثبت و نسبت ریسک/بازده بالا را انتخاب کنید.'},
+  riskoff: {k:'riskoff',label:'ریسک‌گریز (Risk-Off)', icon:'🔴', c:'#ef4444', adj:-7, hint:'بیت‌کوین در ساختار نزولی — اکثر آلت‌کوین‌ها با بتای بالا سقوط می‌کنند؛ حجم را کم و حد ضرر را سفت کنید.'}
+};
+
 /* ------------------------- Helpers ------------------------- */
 const $ = s=>document.querySelector(s);
 /* پاکسازی هر داده‌ی خارجی پیش از تزریق در HTML — جلوگیری از XSS */
@@ -565,14 +611,14 @@ const prev=a=>{ let c=0; for(let i=a.length-1;i>=0;i--) if(a[i]!=null){ if(c===1
 /* ------------------------- Core analysis ------------------------- */
 function analyze(c){
   const p=(c.sparkline_in_7d?.price||[]).filter(x=>x!=null&&isFinite(x));
-  const a={ok:p.length>=60, prices:p};
+  const a={ok:p.length>=60, prices:p, kind:assetKind(c)};
   const ch1=c.price_change_percentage_1h_in_currency||0, ch24=c.price_change_percentage_24h_in_currency||0,
         ch7=c.price_change_percentage_7d_in_currency||0, ch30=c.price_change_percentage_30d_in_currency||0;
   a.ch1=ch1;a.ch24=ch24;a.ch7=ch7;a.ch30=ch30;
   a.volRatio = c.market_cap? c.total_volume/c.market_cap : 0;
   a.athDist = c.ath_change_percentage;
   if(!a.ok){ a.score=50; a.cat='hold'; a.rsi=50; a.pred=0; a.predLo=0; a.predHi=0; a.conf=20; a.dvol=0; a.signals=[{t:'داده‌ی کافی برای تحلیل تکنیکال وجود ندارد',s:0}]; a.trend='نامشخص'; a.risk='نامشخص'; a.diverg=null; a.divergStrength=0;
-    const lp=c.current_price||0; a.entry=lp*0.98; a.entryLo=lp*0.96; a.entryHi=lp; a.entryGap=-2; a.ladder=[]; a.anchors=[]; a.avgEntry=lp*0.98; a.stop=lp*0.93; a.tp1=lp*1.05; a.tp2=lp*1.1; a.rr=1; a.buyScore=35; a.grade='D'; a.gradeC='#fb7185'; a.buyState='no'; a.buyStateTxt='داده ناکافی'; a.support=lp*0.95; a.resist=lp*1.05; return a; }
+    const lp=c.current_price||0; a.entry=lp*0.98; a.entryLo=lp*0.96; a.entryHi=lp; a.entryGap=-2; a.ladder=[]; a.anchors=[]; a.avgEntry=lp*0.98; a.stop=lp*0.93; a.tp1=lp*1.05; a.tp2=lp*1.1; a.rr=1; a.buyScore=35; a.grade='D'; a.gradeC='#fb7185'; a.buyState='no'; a.buyStateTxt='داده ناکافی'; a.support=lp*0.95; a.resist=lp*1.05; a.rrNow=0; a.riskPct=7; a.rs7=0; a.rs24=0; a.ctx=[]; a.buyRaw=-15; return a; }
   const lastP=p[p.length-1];
   const rsiArr=RSI(p,14); a.rsi=last(rsiArr); a.rsiPrev=prev(rsiArr);
   const {macd,signal,hist}=MACD(p); a.macd=last(macd); a.sig=last(signal); a.hist=last(hist); a.histPrev=prev(hist);
@@ -785,8 +831,15 @@ function buyPlan(a, c, lastP, p){
   // پلکان زیر قیمت روز است و هدفِ محاسبه‌شده بی‌معنا می‌شود
   a.tp1  = Math.max(a.tp1, mkt*(1+atrLike*1.2));
   a.tp2  = Math.max(a.tp2, a.tp1*1.03);
+  // سقف فاصله حد ضرر: ریسک بیش از ۱۵٪ در یک معامله‌ی نوسانی قابل دفاع نیست
+  a.wideStop=false;
+  if((a.avgEntry-a.stop)/a.avgEntry>0.15){ a.stop=a.avgEntry*0.85; a.wideStop=true; }
   const risk=a.avgEntry-a.stop, reward=a.tp1-a.avgEntry;
   a.rr = risk>0? clamp(reward/risk,0,10) : 0;
+  // نسبت ریسک/بازده اگر همین حالا با قیمت بازار وارد شوید (نه قیمت ایده‌آل)
+  const riskNow=mkt-a.stop, rewardNow=a.tp1-mkt;
+  a.rrNow = riskNow>0? clamp(rewardNow/riskNow,0,10) : 0;
+  a.riskPct = (1-a.stop/mkt)*100;                      // درصد ریسک از قیمت فعلی تا حد ضرر
 
   // وضعیت لحظه‌ای نسبت به محدوده خرید
   if(mkt<=a.entryLo)        { a.buyState='below'; a.buyStateTxt='زیر محدوده — تخفیف بیشتر'; }
@@ -812,18 +865,77 @@ function buyPlan(a, c, lastP, p){
   if(a.diverg==='bear')    b-=clamp(a.divergStrength,0,12)*0.65;
   if(a.cat==='sell')       b-=5;
   if(a.cat==='ssell')      b-=12;
+  if(a.wideStop)           b-=3;                            // حد ضرر بیش از حد دور
+  if(a.athDist!=null && a.athDist<-92) b-=4;                // «تله‌ی ارزش»: ۹۲٪+ زیر سقف تاریخی
+  a.buyRaw=b;                                               // پیش از تعدیل رژیم بازار
   a.buyScore=Math.round(clamp(50+b,0,100));
+  setGrade(a);
+}
+function setGrade(a){
   a.grade = a.buyScore>=82?'A+' : a.buyScore>=74?'A' : a.buyScore>=66?'B+' : a.buyScore>=58?'B' : a.buyScore>=50?'C' : a.buyScore>=40?'D':'E';
   a.gradeC= a.buyScore>=74?'#00e676' : a.buyScore>=58?'#4ade80' : a.buyScore>=50?'#fbbf24' : a.buyScore>=40?'#fb7185':'#ef4444';
+}
+
+/* =====================================================================
+   لایه‌ی دوم تحلیل: زمینه‌ی بازار (Market Context)
+   ۱) رژیم بازار از روی بیت‌کوین + گستردگی
+   ۲) قدرت نسبی هر ارز در برابر بیت‌کوین (RS) — آلتی که در سقوط BTC
+      مقاومت می‌کند، در برگشت معمولاً پیشرو است.
+   خروجی: تعدیل امتیاز فرصت خرید و افزودن سیگنال‌های زمینه‌ای
+   ===================================================================== */
+function applyMarketContext(){
+  const cs=state.coins.filter(tradable).filter(c=>c.a.ok);
+  const btc=state.coins.find(c=>c.id==='bitcoin' && c.a.ok);
+  const bull=cs.filter(c=>['sbuy','buy','pot'].includes(c.a.cat)).length, breadth=cs.length? bull/cs.length : 0.5;
+  const above=cs.filter(c=>c.current_price>c.a.sma20).length/(cs.length||1);
+  let pts=0, why=[];
+  if(btc){
+    const b=btc.a, px=btc.current_price;
+    if(px>b.sma50 && b.sma20>b.sma50){ pts+=2; why.push('BTC بالای SMA50 با ساختار صعودی'); }
+    else if(px<b.sma50 && b.sma20<b.sma50){ pts-=2; why.push('BTC زیر SMA50 با ساختار نزولی'); }
+    if(b.slope7>0.05){ pts+=1; why.push('شیب هفتگی BTC مثبت'); } else if(b.slope7<-0.05){ pts-=1; why.push('شیب هفتگی BTC منفی'); }
+    if(b.rsi>72){ pts-=1; why.push('RSI بیت‌کوین در اشباع خرید'); } else if(b.rsi<35){ pts+=1; why.push('RSI بیت‌کوین در اشباع فروش (فرصت انباشت)'); }
+    if(b.macd>b.sig){ pts+=1; } else { pts-=1; }
+  }
+  if(breadth>0.55){ pts+=1; why.push(`گستردگی مثبت (${Math.round(breadth*100)}٪ سیگنال مثبت)`); }
+  else if(breadth<0.3){ pts-=1; why.push(`گستردگی ضعیف (${Math.round(breadth*100)}٪ سیگنال مثبت)`); }
+  if(above>0.6) pts+=1; else if(above<0.3) pts-=1;
+  const fng=state.fng?parseInt(state.fng.value):null;
+  const k = pts>=3?'riskon' : pts<=-3?'riskoff' : 'neutral';
+  state.regime={...REGIMES[k], pts, why, breadth, above, fng, btc7:btc?btc.a.ch7:0, btc24:btc?btc.a.ch24:0};
+
+  const adj=state.regime.adj;
+  state.coins.forEach(c=>{
+    const a=c.a; if(!a.ok) return;
+    a.rs7 = btc? a.ch7 - btc.a.ch7 : 0;          // قدرت نسبی ۷ روزه در برابر BTC
+    a.rs24= btc? a.ch24- btc.a.ch24 : 0;
+    a.beta= (btc && Math.abs(btc.a.ch7)>0.5)? clamp(a.ch7/btc.a.ch7, -3, 4) : null;
+    let b=a.buyRaw;
+    if(c.id!=='bitcoin'){
+      b += adj;                                   // رژیم بازار
+      b += clamp(a.rs7,-12,12)*0.35;              // قدرت نسبی
+      if(state.regime.k==='riskoff' && a.rs7>3) b+=3;   // مقاوم در بازار ریزشی = رهبر احتمالی
+    }
+    a.buyScore=Math.round(clamp(50+b,0,100)); setGrade(a);
+    // سیگنال‌های زمینه‌ای برای نمایش در مودال (روی امتیاز تکنیکال اثر ندارند)
+    a.ctx=[];
+    if(c.id!=='bitcoin'){
+      a.ctx.push({t:`قدرت نسبی ۷ روزه در برابر بیت‌کوین: ${pct(a.rs7,1)}${a.rs7>3?' — پیشروی آلت 💪':a.rs7<-3?' — ضعیف‌تر از بازار':''}`, s:Math.round(clamp(a.rs7,-12,12)*0.35)});
+      a.ctx.push({t:`رژیم بازار: ${state.regime.label}`, s:adj});
+    }
+  });
 }
 
 /* ------------------------- Data fetching ------------------------- */
 async function getJSON(url){ const r=await fetch(url); if(!r.ok){ const e=new Error(r.status); e.status=r.status; throw e; } return r.json(); }
 async function loadAll(manual=false){
+  if(state.loading) return;                       // جلوگیری از درخواست‌های هم‌پوشان
+  state.loading=true;
   const btn=$('#refreshBtn'); btn.classList.add('spin'); $('#statusTxt').textContent='در حال واکشی داده از CoinGecko…';
   try{
     const coins=await getJSON(`${API}/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=100&page=1&sparkline=true&price_change_percentage=1h%2C24h%2C7d%2C30d`);
     state.coins=coins.map(c=>({...c, a:analyze(c)}));
+    applyMarketContext();
     try{ localStorage.setItem('cb_cache', JSON.stringify({t:Date.now(), coins:coins})); }catch(e){ try{ localStorage.removeItem('cb_cache'); }catch(_){} }
     $('#dot').classList.remove('err'); $('#statusTxt').textContent=`متصل • ${coins.length} ارز • ${faTime(Date.now())}`;
     $('#updTime').textContent=`آخرین بروزرسانی: ${faTime(Date.now())}`;
@@ -833,10 +945,11 @@ async function loadAll(manual=false){
     $('#dot').classList.add('err');
     if(e&&e.status===429){ mon.backoff=Math.min((mon.backoff||1)*2,8); mon.left=mon.iv*mon.backoff; toast('⏳ محدودیت نرخ CoinGecko؛ بررسی بعدی با تأخیر انجام می‌شود',5000); } else { mon.backoff=1; }
     let cache=null; try{ cache=JSON.parse(localStorage.getItem('cb_cache')||'null'); }catch(_){ cache=null; }
-    if(cache){ state.coins=cache.coins.map(c=>({...c,a:analyze(c)})); $('#statusTxt').textContent='آفلاین — نمایش آخرین داده ذخیره‌شده ('+faTime(cache.t)+')'; toast('⚠️ محدودیت نرخ درخواست یا قطع اتصال؛ داده کش‌شده نمایش داده می‌شود'); }
+    if(cache){ state.coins=cache.coins.map(c=>({...c,a:analyze(c)})); applyMarketContext(); $('#statusTxt').textContent='آفلاین — نمایش آخرین داده ذخیره‌شده ('+faTime(cache.t)+')'; toast('⚠️ محدودیت نرخ درخواست یا قطع اتصال؛ داده کش‌شده نمایش داده می‌شود'); }
     else { $('#statusTxt').textContent='خطا در اتصال'; toast('❌ عدم دسترسی به مرجع داده. چند لحظه بعد دوباره تلاش کنید'); }
   }
   btn.classList.remove('spin');
+  state.loading=false;
   renderAll();
   afterCycle();
   // secondary data (non-blocking)
@@ -848,7 +961,7 @@ async function loadAll(manual=false){
 function renderAll(){ renderOverview(); renderPulse(); renderCmp(); renderBest(); renderChips(); renderList(); }
 
 function renderOverview(){
-  const g=state.global; const cs=state.coins.filter(c=>c.a.ok);
+  const g=state.global; const cs=state.coins.filter(c=>c.a.ok && tradable(c));
   if(g){
     $('#s-mcap').textContent=fmtBig(g.total_market_cap.usd);
     const ch=g.market_cap_change_percentage_24h_usd; $('#s-mcapch').innerHTML=`<span class="${cls(ch)}">${pct(ch)}</span> در ۲۴ ساعت`;
@@ -873,7 +986,7 @@ function drawGauge(cv,val,colors){ // val 0..100 semicircle
 }
 
 function renderPulse(){
-  const cs=state.coins.filter(c=>c.a.ok); if(!cs.length) return;
+  const cs=state.coins.filter(c=>c.a.ok && tradable(c)); if(!cs.length) return;
   // weighted by sqrt of mcap for market forecast
   let ws=0,wp=0,wsum=0; cs.forEach(c=>{ const w=Math.sqrt(c.market_cap||1); ws+=c.a.score*w; wp+=c.a.pred*w; wsum+=w; });
   const mscore=ws/wsum, mpred=wp/wsum;
@@ -884,14 +997,15 @@ function renderPulse(){
   let extra=''; if(fng!=null){ if(fng<25&&mscore<45) extra=' | ترس شدید + ضعف تکنیکال: تاریخاً منطقه انباشت هوشمند'; else if(fng>75&&mscore>60) extra=' | طمع شدید: مراقب اصلاح ناگهانی باشید'; }
   $('#mktForecastSub').textContent=`امتیاز وزنی بازار: ${mscore.toFixed(0)}/100 • بازده مورد انتظار هفته: ${pct(mpred,1)}${extra}`;
   // breadth
-  const counts={}; Object.keys(CATS).forEach(k=>counts[k]=0); state.coins.forEach(c=>counts[c.a.cat]++);
-  const n=state.coins.length; $('#breadthBar').innerHTML=Object.keys(CATS).map(k=>`<span style="width:${counts[k]/n*100}%;background:${CATS[k].c}" title="${CATS[k].label}"></span>`).join('');
+  const counts={}; Object.keys(CATS).forEach(k=>counts[k]=0); cs.forEach(c=>counts[c.a.cat]++);
+  const n=cs.length; $('#breadthBar').innerHTML=Object.keys(CATS).map(k=>`<span style="width:${counts[k]/n*100}%;background:${CATS[k].c}" title="${CATS[k].label}"></span>`).join('');
   $('#breadthLegend').innerHTML=Object.keys(CATS).map(k=>`<span><i style="background:${CATS[k].c}"></i>${CATS[k].label}: ${counts[k]}</span>`).join('');
   const bull=counts.sbuy+counts.buy+counts.pot, bear=counts.sell+counts.ssell;
   $('#breadthTxt').textContent=`${Math.round(bull/n*100)}٪ مثبت / ${Math.round(bear/n*100)}٪ منفی`;
   // top signals
-  const top=[...state.coins].sort((a,b)=>b.a.score-a.a.score).slice(0,4);
-  const bottom=[...state.coins].sort((a,b)=>a.a.score-b.a.score).slice(0,2);
+  const top=[...cs].sort((a,b)=>b.a.score-a.a.score).slice(0,4);
+  const bottom=[...cs].sort((a,b)=>a.a.score-b.a.score).slice(0,2);
+  renderRegime();
   $('#topSignals').innerHTML=[...top,...bottom].map(c=>`<div class="mover" onclick="openModal('${esc(c.id)}')"><img src="${safeImg(c.image)}" alt=""><b>${esc(c.name)} <small style="color:var(--muted)">${esc(c.symbol.toUpperCase())}</small></b><span class="cat" style="--catc:${CATS[c.a.cat].c};font-size:.68rem;padding:2px 8px">${CATS[c.a.cat].label}</span><span style="font-weight:800;min-width:26px;text-align:left">${c.a.score}</span></div>`).join('');
 }
 
@@ -903,6 +1017,20 @@ function renderFNG(){
   $('#fngVal').textContent=v; $('#fngVal').style.color=v<25?'#ef4444':v<45?'#fb7185':v<55?'#fbbf24':v<75?'#4ade80':'#00e676';
   $('#fngTxt').textContent=map[f.value_classification]||f.value_classification;
   $('#fngHint').textContent=v<25?'💡 ترس شدید معمولاً فرصت‌های خرید پله‌ای ایجاد می‌کند (وارن بافت: وقتی دیگران می‌ترسند، طمع کنید).':v>75?'💡 طمع شدید هشدار احتیاط است؛ ذخیره سود و کاهش اهرم توصیه می‌شود.':'💡 احساسات بازار در محدوده طبیعی؛ تصمیم‌ها را بر پایه تکنیکال بگیرید.';
+}
+
+function renderRegime(){
+  const R=state.regime; if(!R) return;
+  const box=$('#regimePanel');
+  box.querySelector('.regime').style.setProperty('--rc',R.c);
+  box.querySelector('.rico').textContent=R.icon;
+  box.querySelector('.rlbl').textContent=R.label;
+  box.querySelector('.rsub').textContent=`BTC ۲۴h: ${pct(R.btc24,1)} • BTC ۷d: ${pct(R.btc7,1)} • امتیاز رژیم ${R.pts>0?'+':''}${R.pts}`;
+  $('#regimeWhy').innerHTML=R.why.slice(0,4).map(w=>`<span>${esc(w)}</span>`).join('');
+  let hint=R.hint;
+  if(R.k==='riskon' && R.fng!=null && R.fng>78) hint+=' ⚠️ اما طمع شدید در بازار؛ از تعقیب قیمت بپرهیزید.';
+  if(R.k==='riskoff' && R.fng!=null && R.fng<22) hint+=' 💡 ترس شدید + ریسک‌گریزی: منطقه‌ی انباشت پله‌ای بلندمدت روی ارزهای بزرگ.';
+  $('#regimeHint').textContent=hint;
 }
 
 function renderChips(){
@@ -917,7 +1045,7 @@ function filtered(){
   let l=state.coins.filter(c=>state.filter==='all'||c.a.cat===state.filter);
   if(state.watchOnly) l=l.filter(c=>state.watch.includes(c.id));
   if(state.q){ const q=state.q.toLowerCase(); l=l.filter(c=>c.name.toLowerCase().includes(q)||c.symbol.toLowerCase().includes(q)); }
-  const f={buy:(a,b)=>b.a.buyScore-a.a.buyScore, score:(a,b)=>b.a.score-a.a.score, rank:(a,b)=>a.market_cap_rank-b.market_cap_rank, ch24:(a,b)=>b.a.ch24-a.a.ch24, ch7:(a,b)=>b.a.ch7-a.a.ch7, pred:(a,b)=>b.a.pred-a.a.pred, rsi:(a,b)=>a.a.rsi-b.a.rsi, vol:(a,b)=>b.a.dvol-a.a.dvol}[state.sort];
+  const f={buy:(a,b)=>b.a.buyScore-a.a.buyScore, score:(a,b)=>b.a.score-a.a.score, rank:(a,b)=>a.market_cap_rank-b.market_cap_rank, ch24:(a,b)=>b.a.ch24-a.a.ch24, ch7:(a,b)=>b.a.ch7-a.a.ch7, pred:(a,b)=>b.a.pred-a.a.pred, rsi:(a,b)=>a.a.rsi-b.a.rsi, vol:(a,b)=>b.a.dvol-a.a.dvol, rs:(a,b)=>(b.a.rs7||0)-(a.a.rs7||0)}[state.sort];
   return l.sort(f);
 }
 
@@ -937,7 +1065,7 @@ function renderList(){
     sec.innerHTML='<div class="grid" id="grid"></div>';
     $('#grid').innerHTML=l.map((c,i)=>{ const a=c.a, C=CATS[a.cat]; return `
       <div class="card" style="--catc:${C.c};animation-delay:${Math.min(i,20)*25}ms" onclick="openModal('${esc(c.id)}')">
-        <div class="c-head"><img src="${safeImg(c.image)}" alt="" loading="lazy"><div class="nm"><b>${esc(c.name)}</b><span>${esc(c.symbol.toUpperCase())} <span class="rank">#${esc(c.market_cap_rank)}</span> • ${fmtBig(c.market_cap)}</span></div>
+        <div class="c-head"><img src="${safeImg(c.image)}" alt="" loading="lazy"><div class="nm"><b>${esc(c.name)}${a.kind!=='asset'?`<span class="kind">${KIND_LABEL[a.kind]}</span>`:''}</b><span>${esc(c.symbol.toUpperCase())} <span class="rank">#${esc(c.market_cap_rank)}</span> • ${fmtBig(c.market_cap)}</span></div>
           <button class="star ${state.watch.includes(c.id)?'on':''}" onclick="event.stopPropagation();toggleWatch('${esc(c.id)}')" aria-label="افزودن به علاقه‌مندی‌ها">★</button>
           <button class="star-cmp ${state.cmp.includes(c.id)?'on':''}" onclick="event.stopPropagation();toggleCmp('${esc(c.id)}')" aria-label="افزودن به مقایسه">⚖️</button></div>
         <div class="c-price"><span class="p">${fmtP(c.current_price)}</span><span class="badge ${cls(a.ch24)}">${pct(a.ch24)}</span><span style="font-size:.7rem;color:var(--muted)">۷روز: <span class="${cls(a.ch7)}">${pct(a.ch7,1)}</span></span></div>
@@ -951,7 +1079,7 @@ function renderList(){
     requestAnimationFrame(()=>document.querySelectorAll('.spark').forEach(cv=>{ const c=state.coins.find(x=>x.id===cv.dataset.id); sparkline(cv,c.a.prices,c.a.ch7>=0?'#22c55e':'#ef4444'); }));
   } else {
     sec.innerHTML=`<div class="tbl-wrap"><table><thead><tr><th>#</th><th>ارز</th><th>قیمت</th><th>۱ساعت</th><th>۲۴ساعت</th><th>۷روز</th><th>۳۰روز</th><th>نمودار ۷ روزه</th><th>RSI</th><th>MACD</th><th>امتیاز</th><th>امتیاز خرید</th><th>💰 بهترین قیمت خرید</th><th>وضعیت</th><th>طبقه</th><th>پیش‌بینی ۷ روزه</th><th>ریسک</th><th>ارزش بازار</th></tr></thead><tbody>
-      ${l.map(c=>{const a=c.a,C=CATS[a.cat];return `<tr onclick="openModal('${esc(c.id)}')"><td>${esc(c.market_cap_rank)}</td><td><img src="${safeImg(c.image)}" alt=""><b>${esc(c.name)}</b> <small style="color:var(--muted)">${esc(c.symbol.toUpperCase())}</small></td><td>${fmtP(c.current_price)}</td>
+      ${l.map(c=>{const a=c.a,C=CATS[a.cat];return `<tr onclick="openModal('${esc(c.id)}')"><td>${esc(c.market_cap_rank)}</td><td><img src="${safeImg(c.image)}" alt=""><b>${esc(c.name)}</b> <small style="color:var(--muted)">${esc(c.symbol.toUpperCase())}</small>${a.kind!=='asset'?`<span class="kind">${KIND_LABEL[a.kind]}</span>`:''}</td><td>${fmtP(c.current_price)}</td>
       <td class="${cls(a.ch1)}">${pct(a.ch1,1)}</td><td class="${cls(a.ch24)}">${pct(a.ch24,1)}</td><td class="${cls(a.ch7)}">${pct(a.ch7,1)}</td><td class="${cls(a.ch30)}">${pct(a.ch30,1)}</td>
       <td><canvas class="spark" data-id="${esc(c.id)}" style="width:120px;height:34px;margin:0"></canvas></td><td>${a.rsi?.toFixed(0)??'—'}</td><td class="${a.hist>=0?'up':'down'}">${a.hist>=0?'▲':'▼'}</td>
       <td><b style="color:${C.c}">${a.score}</b></td><td><b style="color:${a.gradeC}">${a.buyScore}</b> <small style="color:var(--muted)">${esc(a.grade)}</small></td><td><b style="color:var(--sbuy)">${fmtP(a.entry)}</b> <small style="color:var(--muted)">${pct(a.entryGap,1)}</small></td><td><span class="stbadge st-${a.buyState}">${esc(a.buyStateTxt)}</span></td><td><span class="cat" style="--catc:${C.c}">${C.label}</span></td><td class="${cls(a.pred)}">${pct(a.pred,1)} <small style="color:var(--muted)">(${a.conf}٪)</small></td><td>${esc(a.risk)}</td><td>${fmtBig(c.market_cap)}</td></tr>`}).join('')}
@@ -973,9 +1101,10 @@ function closeModal(){ $('#modal').classList.remove('open'); document.body.style
 
 function renderModalInfo(c){
   const a=c.a,C=CATS[a.cat];
-  $('#mhead').innerHTML=`<img src="${safeImg(c.image)}" alt=""><div><h2>${esc(c.name)} <small style="color:var(--muted);font-size:.9rem">${esc(c.symbol.toUpperCase())} • رتبه #${esc(c.market_cap_rank)}</small></h2><span class="cat" style="--catc:${C.c}">${C.icon} ${C.label} — امتیاز ${a.score}/100</span></div><div class="mp">${fmtP(c.current_price)}<div style="font-size:.85rem" class="${cls(a.ch24)}">${pct(a.ch24)} (۲۴h)</div></div>`;
+  $('#mhead').innerHTML=`<img src="${safeImg(c.image)}" alt=""><div><h2>${esc(c.name)} <small style="color:var(--muted);font-size:.9rem">${esc(c.symbol.toUpperCase())} • رتبه #${esc(c.market_cap_rank)}</small></h2><span class="cat" style="--catc:${C.c}">${C.icon} ${C.label} — امتیاز ${a.score}/100</span>${a.kind!=='asset'?`<div style="font-size:.72rem;color:var(--pot);margin-top:4px">⚠️ ${KIND_LABEL[a.kind]} — از رتبه‌بندی «بهترین خرید» و کارنامه سیگنال‌ها مستثناست</div>`:''}</div><div class="mp">${fmtP(c.current_price)}<div style="font-size:.85rem" class="${cls(a.ch24)}">${pct(a.ch24)} (۲۴h)</div></div>`;
   $('#mkv').innerHTML=[['RSI (14)',a.rsi?.toFixed(1)],['MACD',a.macd?.toPrecision(3)],['Signal',a.sig?.toPrecision(3)],['Histogram',a.hist?.toPrecision(3)],['SMA 20',fmtP(a.sma20)],['SMA 50',fmtP(a.sma50)],['EMA 20',fmtP(a.ema20)],['باند بالا',fmtP(a.bbUp)],['باند پایین',fmtP(a.bbLo)],['موقعیت در باند',(a.bbPos*100).toFixed(0)+'%'],['پهنای باند',a.bbWidth?.toFixed(1)+'%'],['نوسان روزانه',a.dvol?.toFixed(2)+'%'],['شیب ۴۸h',(a.slopeH*24).toFixed(2)+'%/روز'],['کراس MA',a.cross==='golden'?'طلایی 🌟':a.cross==='death'?'مرگ ☠️':'—'],['کراس MACD',a.macdCross==='bull'?'صعودی':a.macdCross==='bear'?'نزولی':'—']].map(([k,v])=>`<div>${k}<b>${v??'—'}</b></div>`).join('');
-  $('#msig').innerHTML=[...a.signals].sort((x,y)=>Math.abs(y.s)-Math.abs(x.s)).map(s=>`<li style="--sc:${s.s>0?'var(--up)':s.s<0?'var(--down)':'var(--hold)'}"><span>${s.s>0?'✅':s.s<0?'⛔':'ℹ️'}</span><span style="flex:1">${esc(s.t)}</span><b style="color:${s.s>0?'var(--up)':s.s<0?'var(--down)':'var(--muted)'}">${s.s>0?'+':''}${s.s}</b></li>`).join('');
+  $('#msig').innerHTML=[...a.signals].sort((x,y)=>Math.abs(y.s)-Math.abs(x.s)).map(s=>`<li style="--sc:${s.s>0?'var(--up)':s.s<0?'var(--down)':'var(--hold)'}"><span>${s.s>0?'✅':s.s<0?'⛔':'ℹ️'}</span><span style="flex:1">${esc(s.t)}</span><b style="color:${s.s>0?'var(--up)':s.s<0?'var(--down)':'var(--muted)'}">${s.s>0?'+':''}${s.s}</b></li>`).join('')
+    + ((a.ctx&&a.ctx.length)?`<li style="--sc:var(--accent);flex-direction:column;align-items:stretch"><div class="ctxsig"><b style="font-size:.78rem">🌐 زمینه‌ی بازار (روی امتیاز فرصت خرید اثر دارد)</b>${a.ctx.map(x=>`<div><span>${esc(x.t)}</span><b style="color:${x.s>0?'var(--up)':x.s<0?'var(--down)':'var(--muted)'}">${x.s>0?'+':''}${x.s}</b></div>`).join('')}${a.beta!=null?`<div><span>بتای ۷ روزه نسبت به BTC</span><b>${a.beta.toFixed(2)}×</b></div>`:''}</div></li>`:'');
   const tp=c.current_price*(1+a.pred/100), lo=c.current_price*(1+a.predLo/100), hi=c.current_price*(1+a.predHi/100);
   const strat={sbuy:'ورود پله‌ای با حد ضرر زیر حمایت؛ هدف اول مقاومت ۷ روزه.',buy:'ورود با حجم متوسط و تأیید شکست مقاومت؛ مدیریت ریسک ۲٪.',pot:'در واچ‌لیست نگه دارید؛ تأیید برگشت با کراس MACD یا عبور از SMA20 لازم است.',hold:'سیگنال واضحی نیست؛ اگر پوزیشن دارید نگه دارید، ورود جدید توصیه نمی‌شود.',sell:'کاهش پوزیشن یا ذخیره سود؛ منتظر تثبیت روی حمایت بمانید.',ssell:'خروج / اجتناب از ورود؛ ساختار تکنیکال ضعیف است.'}[a.cat];
   $('#mpred').innerHTML=`<div style="font-size:.8rem;color:var(--muted)">🔮 پیش‌بینی روند ۷ روز آینده</div><div class="big ${cls(a.pred)}">${esc(a.trend)} • ${pct(a.pred,1)}</div><div style="font-size:.85rem">قیمت هدف تخمینی: <b>${fmtP(tp)}</b></div>
@@ -991,6 +1120,9 @@ function renderModalInfo(c){
     <div class="lad">${a.ladder.map(x=>`<div>${x.t} (${x.w}٪)<b>${fmtP(x.p)}</b></div>`).join('')}</div>
     <div style="font-size:.75rem;color:var(--muted);margin-top:6px">میانگین ورود پلکانی: <b style="color:var(--text)">${fmtP(a.avgEntry)}</b></div>
     <div class="tri"><div class="sl">حد ضرر<b>${fmtP(a.stop)}</b></div><div class="t1">هدف ۱<b>${fmtP(a.tp1)}</b></div><div class="t2">هدف ۲<b>${fmtP(a.tp2)}</b></div><div class="rr">R/R<b>${a.rr.toFixed(1)}:1</b></div></div>
+    <div style="display:flex;justify-content:space-between;font-size:.75rem;color:var(--muted);margin-top:8px"><span>R/R با قیمت فعلی بازار: <b style="color:${a.rrNow>=1.5?'var(--up)':a.rrNow>=1?'var(--pot)':'var(--down)'}">${a.rrNow.toFixed(2)}:1</b></span><span>ریسک تا حد ضرر: <b class="down">−${a.riskPct.toFixed(1)}٪</b></span></div>
+    ${a.rrNow<1?'<div style="font-size:.73rem;color:var(--pot);margin-top:4px">⚠️ خرید با قیمت فعلی نسبت ریسک/بازده کمتر از ۱ دارد — منتظر رسیدن به محدوده خرید بمانید.</div>':''}
+    ${a.wideStop?'<div style="font-size:.73rem;color:var(--pot);margin-top:4px">⚠️ حمایت ساختاری بسیار دور بود؛ حد ضرر روی سقف ریسک ۱۵٪ محدود شد.</div>':''}
     <div style="margin-top:10px;font-size:.75rem;color:var(--muted);border-top:1px dashed rgba(255,255,255,.12);padding-top:8px">🧮 لنگرهای محاسبه قیمت ورود: ${anchTxt}</div>
     <div style="margin-top:6px;font-size:.78rem">امتیاز فرصت خرید: <b style="color:${a.gradeC}">${a.buyScore}/100 (${esc(a.grade)})</b></div>`;
   $('#msr').innerHTML=`<div class="s">حمایت کلیدی<b>${fmtP(a.support)}</b><small>${pct((a.support/c.current_price-1)*100,1)}</small></div><div class="r">مقاومت کلیدی<b>${fmtP(a.resist)}</b><small>${pct((a.resist/c.current_price-1)*100,1)}</small></div><div style="background:rgba(255,255,255,.05)">ریسک<b>${esc(a.risk)}</b><small>نوسان ${a.dvol?.toFixed(1)}٪</small></div>`;
@@ -1076,7 +1208,7 @@ $('#mainChart').addEventListener('mouseleave',()=>$('#tip').style.display='none'
    ===================================================================== */
 function bestList(n=25){
   return [...state.coins]
-    .filter(c=>c.a.ok && c.market_cap>2e7 && c.total_volume>1e6)
+    .filter(c=>c.a.ok && tradable(c) && c.market_cap>2e7 && c.total_volume>1e6)
     .sort((x,y)=> y.a.buyScore-x.a.buyScore || y.a.score-x.a.score)
     .slice(0,n);
 }
@@ -1106,16 +1238,21 @@ function renderBest(){
         <div class="t2">هدف ۲<b>${fmtP(a.tp2)}</b></div>
         <div class="rr">ریسک/بازده<b>${a.rr.toFixed(1)}:1</b></div>
       </div>
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:9px;font-size:.73rem;color:var(--muted)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:9px;font-size:.73rem;color:var(--muted);flex-wrap:wrap;gap:4px">
         <span class="cat" style="--catc:${C.c};font-size:.7rem">${C.icon} ${C.label}</span>
         <span>پیش‌بینی ۷روزه: <b class="${cls(a.pred)}">${pct(a.pred,1)}</b></span>
-        <span>ریسک: ${esc(a.risk)}</span>
+        <span title="قدرت نسبی ۷ روزه در برابر بیت‌کوین">RS/BTC: <b class="${cls(a.rs7)} rs">${pct(a.rs7,1)}</b></span>
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-top:5px;font-size:.71rem;color:var(--muted)">
+        <span title="نسبت ریسک/بازده اگر همین حالا با قیمت بازار وارد شوید">R/R با قیمت فعلی: <b style="color:${a.rrNow>=1.5?'var(--up)':a.rrNow>=1?'var(--pot)':'var(--down)'}">${a.rrNow.toFixed(1)}:1</b></span>
+        <span>ریسک تا حد ضرر: <b class="down">−${a.riskPct.toFixed(1)}٪</b></span>
+        <span>نوسان: ${esc(a.risk)}</span>
       </div>
     </div>`;
   }).join('');
 
   $('#bestTblWrap').innerHTML=`<div class="tbl-wrap" style="max-height:520px;overflow:auto"><table class="btbl">
-    <thead><tr><th>رتبه</th><th>ارز</th><th>امتیاز خرید</th><th>درجه</th><th>قیمت فعلی</th><th>💰 بهترین قیمت خرید</th><th>محدوده خرید</th><th>فاصله</th><th>وضعیت</th><th>حد ضرر</th><th>هدف ۱</th><th>R/R</th><th>پیش‌بینی ۷روزه</th><th>طبقه</th></tr></thead><tbody>
+    <thead><tr><th>رتبه</th><th>ارز</th><th>امتیاز خرید</th><th>درجه</th><th>قیمت فعلی</th><th>💰 بهترین قیمت خرید</th><th>محدوده خرید</th><th>فاصله</th><th>وضعیت</th><th>حد ضرر</th><th>هدف ۱</th><th title="ریسک/بازده از نقطه ورود پلکانی">R/R</th><th title="ریسک/بازده اگر همین حالا با قیمت بازار بخرید">R/R فعلی</th><th title="قدرت نسبی ۷ روزه در برابر بیت‌کوین">RS/BTC</th><th>پیش‌بینی ۷روزه</th><th>طبقه</th></tr></thead><tbody>
     ${l.map((c,i)=>{const a=c.a,C=CATS[a.cat];return `<tr onclick="openModal('${esc(c.id)}')">
       <td><b>${i+1}</b></td>
       <td><img src="${safeImg(c.image)}" alt=""><b>${esc(c.name)}</b> <small style="color:var(--muted)">${esc(c.symbol.toUpperCase())}</small></td>
@@ -1129,6 +1266,8 @@ function renderBest(){
       <td class="down">${fmtP(a.stop)}</td>
       <td class="up">${fmtP(a.tp1)}</td>
       <td>${a.rr.toFixed(1)}</td>
+      <td style="color:${a.rrNow>=1.5?'var(--up)':a.rrNow>=1?'var(--pot)':'var(--down)'}">${a.rrNow.toFixed(1)}</td>
+      <td class="${cls(a.rs7)} rs">${pct(a.rs7,1)}</td>
       <td class="${cls(a.pred)}">${pct(a.pred,1)}</td>
       <td><span class="cat" style="--catc:${C.c};font-size:.68rem">${C.label}</span></td>
     </tr>`}).join('')}
@@ -1154,7 +1293,7 @@ function pushAlert(c,kind,text,color,important){
   const a={id:c.id,sym:c.symbol.toUpperCase(),name:c.name,img:c.image,kind,text,color,t:Date.now()};
   mon.alerts.unshift(a);
   if(mon.alerts.length>120) mon.alerts.length=120;
-  if(important){ beep(); notify(`${esc(a.sym)} — ${text}`, `قیمت ${fmtP(c.current_price)} • بهترین خرید ${fmtP(c.a.entry)}`); }
+  if(important){ beep(); notify(`${a.sym} — ${text}`, `قیمت ${fmtP(c.current_price)} • بهترین خرید ${fmtP(c.a.entry)}`); }
 }
 
 /* مقایسه وضعیت جدید با قبلی و تولید رویدادها */
@@ -1199,12 +1338,18 @@ function detectEvents(){
       }
       // رسیدن به حد ضرر / هدف برای علاقه‌مندی‌ها
       if(watched){
-        if(pv.price>a.tp1 === false && c.current_price>=a.tp1 && pv.price<a.tp1){ pushAlert(c,'sig',`به هدف اول رسید (${fmtP(a.tp1)}) 🎯`, '#00e676', true); fresh++; }
+        if(pv.price<a.tp1 && c.current_price>=a.tp1){ pushAlert(c,'sig',`به هدف اول رسید (${fmtP(a.tp1)}) 🎯`, '#00e676', true); fresh++; }
         if(pv.price>a.stop && c.current_price<=a.stop){ pushAlert(c,'risk',`زیر حد ضرر بسته شد (${fmtP(a.stop)}) ⚠️`, '#ef4444', true); fresh++; }
       }
     }
     mon.prev[c.id]={cat:a.cat,score:a.score,buyScore:a.buyScore,buyState:a.buyState,rsi:a.rsi,cross:a.cross,macdCross:a.macdCross,price:c.current_price,tp1:a.tp1,stop:a.stop};
   });
+  // تغییر رژیم بازار — مهم‌ترین رویداد کلان
+  if(state.regime && mon.prevRegime && mon.prevRegime!==state.regime.k){
+    const R=state.regime, btc=state.coins.find(c=>c.id==='bitcoin');
+    if(btc){ pushAlert(btc,R.k==='riskoff'?'risk':'sig',`تغییر رژیم بازار به «${R.label}» ${R.icon}`, R.c, true); fresh++; }
+  }
+  if(state.regime) mon.prevRegime=state.regime.k;
   if(isFirst){
     const top=bestList(3);
     top.forEach(c=>pushAlert(c,'buy',`شروع پایش — بهترین قیمت خرید ${fmtP(c.a.entry)} (امتیاز ${c.a.buyScore})`, '#7c5cff', false));
@@ -1304,8 +1449,13 @@ function perfStats(){
   const decided=win+loss;
   const gains=done.filter(r=>(r.ret||0)>0).reduce((a,b)=>a+b.ret,0);
   const losses=Math.abs(done.filter(r=>(r.ret||0)<0).reduce((a,b)=>a+b.ret,0));
+  const wins=done.filter(r=>(r.ret||0)>0).map(r=>r.ret), lss=done.filter(r=>(r.ret||0)<0).map(r=>r.ret);
+  const avgWin=wins.length? wins.reduce((a,b)=>a+b,0)/wins.length:0, avgLoss=lss.length? Math.abs(lss.reduce((a,b)=>a+b,0)/lss.length):0;
+  const pw=done.length? wins.length/done.length:0;
+  // امید ریاضی هر سیگنال (٪) = احتمال برد×میانگین برد − احتمال باخت×میانگین باخت
+  const expectancy=done.length? pw*avgWin-(1-pw)*avgLoss : null;
   return {done:done.length, open:perf.rec.filter(r=>r.open).length, win, loss, flat,
-    acc: decided? win/decided*100 : null, avg,
+    acc: decided? win/decided*100 : null, avg, avgWin, avgLoss, expectancy,
     best: rets.length?Math.max(...rets):0, worst: rets.length?Math.min(...rets):0,
     pf: losses>0? gains/losses : (gains>0?Infinity:0)};
 }
@@ -1324,7 +1474,9 @@ function renderPerf(){
   const pf = st.pf===Infinity? '∞' : st.pf.toFixed(2);
   $('#perfKv').innerHTML=[['بسته‌شده',st.done],['در جریان',st.open],
     ['میانگین بازده', st.done?pct(st.avg,2):'—'],['بهترین', st.done?pct(st.best,1):'—'],
-    ['بدترین', st.done?pct(st.worst,1):'—'],['فاکتور سود', st.done?pf:'—']]
+    ['بدترین', st.done?pct(st.worst,1):'—'],['فاکتور سود', st.done?pf:'—'],
+    ['میانگین برد', st.done?pct(st.avgWin,1):'—'],['میانگین باخت', st.done?'−'+st.avgLoss.toFixed(1)+'%':'—'],
+    ['امید ریاضی/سیگنال', st.expectancy!=null?pct(st.expectancy,2):'—']]
     .map(([k,v])=>`<div>${esc(k)}<b>${esc(v)}</b></div>`).join('');
 
   const open=perf.rec.filter(r=>r.open).slice(-25).reverse();
@@ -1353,7 +1505,7 @@ function renderPerf(){
 
 function perfCycle(){
   perfEvaluate();
-  state.coins.forEach(c=>{ if(c.a.ok && (c.a.cat==='sbuy' || c.a.buyScore>=78)) perfOpen(c); });
+  state.coins.forEach(c=>{ if(c.a.ok && tradable(c) && (c.a.cat==='sbuy' || c.a.buyScore>=78)) perfOpen(c); });
   perfSave(); renderPerf();
 }
 
@@ -1471,11 +1623,11 @@ function renderCalc(c){
 function exportCSV(){
   const l=bestList(25);
   if(!l.length){ toast('⚠️ هنوز داده‌ای برای خروجی وجود ندارد'); return; }
-  const head=['رتبه','نام','نماد','رتبه بازار','قیمت فعلی (USD)','بهترین قیمت خرید','کف محدوده','سقف محدوده','فاصله تا ورود %','وضعیت','پله ۱','پله ۲','پله ۳','میانگین ورود','حد ضرر','هدف ۱','هدف ۲','ریسک/بازده','امتیاز خرید','درجه','امتیاز تکنیکال','طبقه','RSI','پیش‌بینی ۷ روزه %','اطمینان %','نوسان روزانه %','ارزش بازار'];
+  const head=['رتبه','نام','نماد','رتبه بازار','قیمت فعلی (USD)','بهترین قیمت خرید','کف محدوده','سقف محدوده','فاصله تا ورود %','وضعیت','پله ۱','پله ۲','پله ۳','میانگین ورود','حد ضرر','هدف ۱','هدف ۲','ریسک/بازده','ریسک/بازده با قیمت فعلی','قدرت نسبی ۷روزه به BTC %','امتیاز خرید','درجه','امتیاز تکنیکال','طبقه','RSI','پیش‌بینی ۷ روزه %','اطمینان %','نوسان روزانه %','ارزش بازار'];
   const cell=v=>{ const t=String(v==null?'':v); return /[",\n;]/.test(t)? '"'+t.replace(/"/g,'""')+'"' : t; };
   const rows=l.map((c,i)=>{ const a=c.a; return [i+1,c.name,c.symbol.toUpperCase(),c.market_cap_rank,
     c.current_price,a.entry,a.entryLo,a.entryHi,a.entryGap.toFixed(2),a.buyStateTxt,
-    a.ladder[0]?.p,a.ladder[1]?.p,a.ladder[2]?.p,a.avgEntry,a.stop,a.tp1,a.tp2,a.rr.toFixed(2),
+    a.ladder[0]?.p,a.ladder[1]?.p,a.ladder[2]?.p,a.avgEntry,a.stop,a.tp1,a.tp2,a.rr.toFixed(2),a.rrNow?.toFixed(2),a.rs7?.toFixed(2),
     a.buyScore,a.grade,a.score,CATS[a.cat].label,a.rsi?.toFixed(1),a.pred.toFixed(2),a.conf,
     a.dvol?.toFixed(2),c.market_cap].map(cell).join(','); });
   const stamp=new Date().toISOString().slice(0,16).replace('T','_').replace(':','-');
