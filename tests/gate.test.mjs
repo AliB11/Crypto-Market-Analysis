@@ -33,7 +33,12 @@ function makeEl(tag='div'){
     querySelector:sel=>els.get(sel)||els.set(sel,makeEl()).get(sel),
     querySelectorAll:()=>[], getContext:()=>ctx2d(),
     getBoundingClientRect:()=>({left:0,top:0,right:320,bottom:90,width:320,height:90}),
-    addEventListener(){}, removeEventListener(){}, setAttribute(){}, getAttribute:()=>null, removeAttribute(){},
+    addEventListener(){}, removeEventListener(){},
+    // Attributes are stored for real: assertions on aria-*/data-side would be vacuous otherwise.
+    _attrs:new Map(),
+    setAttribute(k,v){ el._attrs.set(String(k),String(v)); },
+    getAttribute:k=>el._attrs.has(String(k))?el._attrs.get(String(k)):null,
+    removeAttribute(k){ el._attrs.delete(String(k)); },
     appendChild(c){ el.children.push(c); return c; }, removeChild(){}, focus(){}, click(){},
     toDataURL:()=>'data:,'
   };
@@ -51,22 +56,32 @@ function makeStorage(){
 const EXPORTS='state,gate,mon,perf,REGIMES,GATE_STATES,GATE_RULES,GATE_STRICT,bestList,applyMarketContext,'
   +'evalMarketGate,evalCoinGate,gatePermit,gateRank,gateStats,gateBadge,detectEvents,perfCycle,perfOpen,'
   +'exportCSV,renderGate,renderRegime,renderBest,renderList,renderModalInfo,renderCmp,renderAlerts,renderPerf,'
-  +'syncGateUI,loadAll,setMon,shorts,shortCycle,updateShortPlans,renderShorts,exportShortCSV,shortCoinFresh,shortOptions,shortFresh,shortFreshKey,refreshModal,tick,pushAlert,marketRows,analyze,computeIndicatorsInWorker';
+  +'syncGateUI,loadAll,setMon,shorts,shortCycle,updateShortPlans,renderShorts,exportShortCSV,shortCoinFresh,shortOptions,shortFresh,shortFreshKey,refreshModal,tick,pushAlert,marketRows,analyze,computeIndicatorsInWorker,'
+  +'renderFNG,fngValue,buildSignalPayload,setSide,sideView,sideCounts,renderDual,renderSideTabs,renderApiPreview,SIGNAL_SCHEMA_VERSION';
 
-function boot(kind, gateCfg={}){
+function appCode(){
   const app=readFileSync(new URL('../app.js',import.meta.url),'utf8');
-  const code=readFileSync(new URL('../short-engine.js',import.meta.url),'utf8')+'\n'+app
+  return readFileSync(new URL('../short-engine.js',import.meta.url),'utf8')+'\n'+app
     +`\n;globalThis.__api={${EXPORTS}, trd:typeof tradable!=='undefined'?tradable:null};`;
+}
 
-  const store=makeStorage();
+function boot(kind, gateCfg={}, existingStore=null){
+  const code=appCode();
+
+  const store=existingStore||makeStorage();
   if(gateCfg.mode) store.setItem('cb_gate_v1', JSON.stringify(gateCfg));
   els.clear();
 
   let csvText=null; const network={fail:false}; const notices=[];
   class Blob{ constructor(parts){ csvText=parts.join(''); } }
+  // Stand-in side tabs so tablist wiring and aria state can be asserted for real.
+  const sideTabEls=['long','short','both'].map(side=>{
+    const b=makeEl('button'); b.dataset.side=side; return b;
+  });
   const document={
     querySelector:sel=>{ if(!els.has(sel)) els.set(sel,makeEl()); return els.get(sel); },
-    querySelectorAll:()=>[], addEventListener(){}, removeEventListener(){},
+    querySelectorAll:sel=>String(sel).includes('side-tab')?sideTabEls:[],
+    addEventListener(){}, removeEventListener(){},
     createElement:t=>makeEl(t), body:makeEl('body'), documentElement:makeEl('html')
   };
   const sandbox={
@@ -87,10 +102,12 @@ function boot(kind, gateCfg={}){
       return {ok:true, status:200, json:async()=>({prices:[]})};
     }
   };
+  sandbox.location={hash:'',protocol:'https:'};
+  sandbox.history={replaceState(){}};
   sandbox.window=sandbox; sandbox.globalThis=sandbox;
   vm.createContext(sandbox);
   vm.runInContext(code, sandbox, {filename:'index.html'});
-  return {api:sandbox.__api, getCsv:()=>csvText, store,network,notices,sandbox};
+  return {api:sandbox.__api, getCsv:()=>csvText, store,network,notices,sandbox,sideTabEls};
 }
 
 async function settled(api, tries=200){
@@ -344,6 +361,120 @@ test('بازبینی: برابری اندیکاتورها در Worker و مسی�
  w.self.onmessage({data:{id:1,series:[c.sparkline_in_7d.price]}});
  const main=api.analyze(c),worker=api.analyze(c,posted.result[0]);
  for(const key of ['rsi','hist','sma20','sma50','buyScore','entry','stop'])assert.equal(main[key],worker[key],key);
+});
+
+/* ------------------------- تب‌ها، شاخص ترس و طمع، خروجی JSON ------------------------- */
+
+test('باگ رفع‌شده: شاخص ترس و طمع واقعاً رندر می‌شود و روی placeholder نمی‌ماند',async()=>{
+  const {api,sandbox}=boot('riskon');await settled(api);
+  // پیش از رفع باگ، renderFNG هرگز صدا زده نمی‌شد و این مقدارها دست‌نخورده می‌ماندند.
+  const val=sandbox.document.querySelector('#fngVal').textContent;
+  const txt=sandbox.document.querySelector('#fngTxt').textContent;
+  assert.equal(val,62,`مقدار شاخص رندر نشد (${val})`);
+  assert.equal(txt,'طمع',`طبقه‌بندی شاخص رندر نشد (${txt})`);
+  assert.ok(sandbox.document.querySelector('#fngHint').textContent.length>0,'راهنمای شاخص خالی ماند');
+  assert.equal(api.state.regime.fng,62,'مقدار شاخص به رژیم بازار نرسید');
+});
+
+test('شاخص ترس و طمع: مقدار نامعتبر به NaN تبدیل نمی‌شود',async()=>{
+  const {api,sandbox}=boot('riskon');await settled(api);
+  for(const bad of [{value:'abc'},{value:null},{value:'150'},{value:'-3'},null]){
+    api.state.fng=bad;
+    assert.equal(api.fngValue(),null,`مقدار نامعتبر ${JSON.stringify(bad)} باید null شود`);
+    api.renderFNG();
+    const shown=sandbox.document.querySelector('#fngVal').textContent;
+    assert.equal(shown,'—',`مقدار نامعتبر روی گیج نشت کرد: ${shown}`);
+    assert.ok(!String(shown).includes('NaN'),'NaN در رابط ظاهر شد');
+  }
+  api.state.fng={value:'0'};assert.equal(api.fngValue(),0,'صفر یک مقدار معتبر است');
+  api.state.fng={value:100};assert.equal(api.fngValue(),100,'۱۰۰ یک مقدار معتبر است');
+});
+
+test('باگ رفع‌شده: فیلتر هشدار «فقط شورت» پس از بارگذاری مجدد حفظ می‌شود',async()=>{
+  const {api,store}=boot('riskon');await settled(api);
+  api.mon.filter='short';
+  store.setItem('cb_mon_v1',JSON.stringify({on:true,iv:90,sound:false,notif:false,filter:'short'}));
+  // بارگذاری دوباره‌ی برنامه با همان حافظه
+  const reloaded=boot('riskon',{},store);
+  assert.equal(reloaded.api.mon.filter,'short','انتخاب «فقط شورت» پس از رفرش دور ریخته شد');
+});
+
+test('تب‌ها: پیش‌فرض لانگ، تعویض درست، و ماندگاری در حافظه',async()=>{
+  const {api,store,sandbox}=boot('riskon');await settled(api);
+  assert.equal(api.sideView.cur,'long','تب پیش‌فرض باید لانگ باشد');
+  assert.equal(sandbox.document.querySelector('main').getAttribute('data-side'),'long');
+  api.setSide('short');
+  assert.equal(api.sideView.cur,'short');
+  assert.equal(store.getItem('cb_side_v1'),'short','تب انتخابی ذخیره نشد');
+  api.setSide('garbage');
+  assert.equal(api.sideView.cur,'long','مقدار نامعتبر باید به لانگ برگردد');
+});
+
+test('تب‌ها: موتور مستقل از تب فعال کار می‌کند (کارنامه‌ی تب پنهان متوقف نمی‌شود)',async()=>{
+  const {api}=boot('riskoff');await settled(api);
+  api.setSide('long'); // شورت پنهان است
+  const c=api.state.coins.find(c=>c.id!=='bitcoin'&&api.trd(c));
+  api.shorts.enabled=true;
+  api.updateShortPlans();
+  const before=JSON.stringify(api.state.coins.map(c=>c.a.plans&&c.a.plans.short&&c.a.plans.short.state));
+  api.shortCycle();   // باید بدون توجه به تب فعال اجرا شود
+  const after=JSON.stringify(api.state.coins.map(c=>c.a.plans&&c.a.plans.short&&c.a.plans.short.state));
+  assert.ok(before.length>2&&after.length>2,'پلن‌های شورت در تب پنهان محاسبه نشدند');
+  assert.ok(c.a.plans.short,'پلن شورت در تب پنهان ساخته نشد');
+  // کلید تازگی باید به‌روز شده باشد، وگرنه tick هر ثانیه کل بازار را از نو می‌سازد
+  assert.equal(api.state.shortFreshDisplayed,api.shortFreshKey(),'کلید تازگی به‌روز نشد — نشت CPU در tick');
+});
+
+test('خروجی JSON: ساختار نسخه‌دار با تمام پارامترهای ورود و اهداف',async()=>{
+  const {api}=boot('riskon');await settled(api);
+  const p=api.buildSignalPayload({side:'both',filter:'approved'});
+  assert.equal(p.schemaVersion,api.SIGNAL_SCHEMA_VERSION);
+  assert.equal(p.source,'coingecko');
+  assert.ok(p.dataAsOf,'dataAsOf باید برای مصرف ماشینی وجود داشته باشد');
+  assert.equal(typeof p.dataFresh,'boolean');
+  assert.equal(p.count,p.signals.length,'شمارش با تعداد سیگنال‌ها نمی‌خواند');
+  assert.ok(p.market.regime,'زمینه‌ی بازار در خروجی نیست');
+  assert.equal(p.market.fng,62,'شاخص ترس و طمع در خروجی نیست');
+  assert.ok(p.disclaimer.length>10,'سلب مسئولیت در payload نیست');
+  const long=p.signals.find(s=>s.side==='long');
+  assert.ok(long,'هیچ سیگنال لانگی در بازار ریسک‌پذیر تولید نشد');
+  assert.equal(long.strategyVersion,'legacy-long-v1');
+  for(const k of ['best','low','high','avg']) assert.ok(Number.isFinite(long.entry[k]),`entry.${k} عددی نیست`);
+  for(const k of ['stop','tp1','tp2']) assert.ok(Number.isFinite(long.exit[k]),`exit.${k} عددی نیست`);
+  assert.ok(long.exit.stop<long.entry.best,'حد ضرر باید زیر ورود باشد');
+  assert.ok(long.exit.tp1>long.entry.best&&long.exit.tp2>long.exit.tp1,'ترتیب اهداف نادرست است');
+  assert.equal(long.entry.ladder.length,3,'پلکان سه‌مرحله‌ای در خروجی نیست');
+  assert.equal(long.entry.ladder.reduce((s,x)=>s+x.weight,0),100,'مجموع وزن پله‌ها ۱۰۰ نیست');
+  assert.ok(long.disclaimer.length>10,'سلب مسئولیت در سیگنال نیست');
+  // خروجی باید سریال‌پذیر و بدون NaN/undefined باشد
+  const text=JSON.stringify(p);
+  assert.ok(!text.includes('NaN')&&!text.includes('undefined'),'خروجی JSON مقدار نامعتبر دارد');
+  assert.deepEqual(JSON.parse(text).count,p.count,'خروجی قابل بازخوانی نیست');
+});
+
+test('خروجی JSON: فیلتر جهت و «فقط مجاز» واقعاً اعمال می‌شود',async()=>{
+  const {api}=boot('riskon');await settled(api);
+  assert.ok(api.buildSignalPayload({side:'long',filter:'approved'}).signals.every(s=>s.side==='long'));
+  assert.ok(api.buildSignalPayload({side:'short',filter:'all'}).signals.every(s=>s.side==='short'));
+  const approved=api.buildSignalPayload({side:'long',filter:'approved'});
+  const all=api.buildSignalPayload({side:'long',filter:'all'});
+  assert.ok(all.count>=approved.count,'فیلتر «همه» نباید کمتر از «فقط مجاز» باشد');
+  approved.signals.forEach(s=>assert.equal(s.gate.state,'open',`${s.id} بدون مجوز در خروجی «فقط مجاز» آمد`));
+  // استیبل‌کوین و رَپ‌شده هرگز نباید در خروجی ماشینی باشند
+  all.signals.forEach(s=>assert.ok(!['tether','usd-coin','wrapped-bitcoin'].includes(s.id),`${s.id} باید مستثنا باشد`));
+});
+
+test('خروجی JSON در بازار ریزشی: شورت‌ها با نسخه‌ی مستقل و هندسه‌ی معتبر',async()=>{
+  const {api}=boot('riskoff');await settled(api);
+  const p=api.buildSignalPayload({side:'short',filter:'all'});
+  p.signals.forEach(s=>{
+    assert.equal(s.side,'short');
+    assert.equal(s.strategyVersion,'short-pullback-v1','نسخه‌ی استراتژی شورت نادرست است');
+    if(s.valid){
+      assert.ok(s.exit.stop>s.entry.best,'در شورت حد ضرر باید بالای ورود باشد');
+      assert.ok(s.exit.tp1<s.entry.best&&s.exit.tp2<s.exit.tp1,'ترتیب اهداف شورت نادرست است');
+    }
+  });
 });
 
 /* ------------------------- اجرا ------------------------- */
