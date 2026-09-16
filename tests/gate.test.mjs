@@ -2,8 +2,8 @@
    آزمون لایه‌ی «دروازه‌ی رژیم» (Regime Gateway)
    اجرا:  node tests/gate.test.mjs
 
-   این آزمون index.html واقعی را می‌خواند، بلوک <script> برنامه را بدون
-   هیچ تغییری در یک زمینه‌ی Node با DOM ساختگی اجرا می‌کند و سپس با داده‌ی
+   این آزمون app.js واقعی را بدون تغییر در یک زمینه‌ی Node با DOM ساختگی
+   اجرا می‌کند و سپس با داده‌ی
    ساختگیِ بازار (سناریوی ریسک‌پذیر و ریسک‌گریز) کل زنجیره‌ی
    analyze → applyMarketContext → دروازه → رتبه‌بندی/هشدار/کارنامه/CSV
    را می‌سنجد. یعنی همان کدی اجرا می‌شود که در مرورگر اجرا می‌شود.
@@ -117,10 +117,8 @@ const EXPORTS='state,gate,mon,perf,REGIMES,GATE_STATES,GATE_RULES,GATE_STRICT,be
   +'syncGateUI,loadAll,setMon';
 
 function boot(kind, gateCfg={}){
-  const html=readFileSync(new URL('../index.html',import.meta.url),'utf8');
-  const a=html.indexOf('<script>'), b=html.lastIndexOf('</script>');
-  assert.ok(a>0 && b>a, 'بلوک <script> در index.html پیدا نشد');
-  const code=html.slice(a+8,b)
+  const app=readFileSync(new URL('../app.js',import.meta.url),'utf8');
+  const code=app
     +`\n;globalThis.__api={${EXPORTS}, trd:typeof tradable!=='undefined'?tradable:null};`;
 
   const store=makeStorage();
