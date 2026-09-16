@@ -30,8 +30,23 @@ try{
   });
   await page.goto(base);
   await wait(page,()=>state.coins.length>0&&!state.loading);
+  // Default tab is long: short workspace must be hidden, long must be visible.
+  assert.equal(await page.locator('#tabLong').getAttribute('aria-selected'),'true');
+  assert.equal(await page.locator('#shortSec').isVisible(),false,'short section must be hidden on the long tab');
+  assert.equal(await page.locator('#bestSec').isVisible(),true,'long section must be visible on the long tab');
+  // Fear & Greed must actually render, not stay on its placeholder.
+  assert.notEqual((await page.locator('#fngVal').innerText()).trim(),'—','Fear & Greed gauge stayed on placeholder');
+  assert.notMatch(await page.locator('#fngVal').innerText(),/NaN/);
+  // Switch to the short tab before touching short controls.
+  await page.locator('#tabShort').click();
+  assert.equal(await page.locator('#shortSec').isVisible(),true);
+  assert.equal(await page.locator('#bestSec').isVisible(),false);
   assert.equal(await page.locator('#shortEnabled').isChecked(),false);
   assert.ok(await page.locator('.short-card').count()>0);
+  // Dual tab renders without error, then return to short for the rest of the flow.
+  await page.locator('#tabBoth').click();
+  assert.equal(await page.locator('#dualSec').isVisible(),true);
+  await page.locator('#tabShort').click();
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true,`horizontal page overflow at ${width}`);
   // The real Worker, analyze(), market context, rendering and existing long UI ran above.
   // Isolate a known valid short setup to exercise controls/notifications/persistence.
@@ -58,6 +73,8 @@ try{
   await page.locator('#alFilter').selectOption('short');assert.match(await page.locator('#alerts').innerText(),/شورت/);
   const fixed=await page.evaluate(()=>({stop:shorts.records[0].stop,tp1:shorts.records[0].tp1}));
   await page.reload();await wait(page,()=>!state.loading&&state.coins.length>0);
+  // The selected tab must survive a reload, otherwise the short controls are unreachable.
+  assert.equal(await page.locator('#tabShort').getAttribute('aria-selected'),'true','selected tab was not restored');
   assert.equal(await page.locator('#shortEnabled').isChecked(),true);
   assert.equal(await page.evaluate(()=>shorts.records.length),1);
   assert.deepEqual(await page.evaluate(()=>({stop:shorts.records[0].stop,tp1:shorts.records[0].tp1})),fixed);
@@ -74,9 +91,12 @@ try{
  page.on('pageerror',e=>errors.push(e.message));
  await page.goto(base);await page.evaluate(()=>navigator.serviceWorker.ready);
  await wait(page,()=>!!navigator.serviceWorker.controller);
- assert.ok((await page.evaluate(()=>caches.keys())).includes('cryptobin-shell-v4'));
+ assert.ok((await page.evaluate(()=>caches.keys())).includes('cryptobin-shell-v5'));
  await context.setOffline(true);await page.reload();
  await wait(page,()=>!state.loading);
+ // Fresh context starts on the long tab; the short workspace is reachable via its tab.
+ assert.equal(await page.locator('#sideTabs').isVisible(),true);
+ await page.locator('#tabShort').click();
  assert.equal(await page.locator('#shortEnabled').isVisible(),true);
  assert.equal(await page.evaluate(()=>typeof ShortEngine.plan),'function');
  assert.deepEqual(errors,[]);

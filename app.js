@@ -14,7 +14,7 @@ const CATS = {
 const LS_KEYS = {
   watch:'cb_watch', cmp:'cb_cmp', gate:'cb_gate_v1', alerts:'cb_alerts',
   perf:'cb_perf_v1', cache:'cb_cache', risk:'cb_risk', mon:'cb_mon_v1',
-  view:'cb_view', sort:'cb_sort', filter:'cb_filter'
+  view:'cb_view', sort:'cb_sort', filter:'cb_filter', side:'cb_side_v1'
 };
 const state = {coins:[], global:null, fng:null, filter:'all', q:'', sort:'buy', view:'cards',
   watch: (()=>{try{return JSON.parse(localStorage.getItem(LS_KEYS.watch)||'[]')}catch(e){return []}})(),
@@ -534,7 +534,7 @@ function applyMarketContext(){
   if(breadth>0.55){ pts+=1; why.push(`گستردگی مثبت (${Math.round(breadth*100)}٪ سیگنال خرید/قوی)`); }
   else if(breadth<0.3){ pts-=1; why.push(`گستردگی ضعیف (${Math.round(breadth*100)}٪ سیگنال مثبت)`); }
   if(above>0.6) pts+=1; else if(above<0.3) pts-=1;
-  const fng=state.fng?parseInt(state.fng.value):null;
+  const fng=fngValue();
   const k = pts>=3?'riskon' : pts<=-3?'riskoff' : 'neutral';
   state.regime={...REGIMES[k], btcAvailable:!!btc&&shortCoinFresh(btc), pts, why, breadth, above, fng, btc7:btc?btc.a.ch7:0, btc24:btc?btc.a.ch24:0};
 
@@ -672,6 +672,225 @@ function initShortUI(){
   $('#shortPanel').onclick=e=>{const b=e.target.closest('[data-short-open]');if(b)openModal(b.dataset.shortOpen);};
 }
 
+/* =====================================================================
+   تب‌های جهت معامله (لانگ / شورت / دوطرفه)
+   مهم: تب فقط لایه‌ی نمایش است. چرخه‌ی پایش، کارنامه و ارزیابی معاملات
+   مستقل از تب فعال اجرا می‌شوند تا معامله‌های تب پنهان بی‌صدا متوقف نشوند.
+   ===================================================================== */
+const SIDES=['long','short','both'];
+const sideView={ cur:'long' };
+try{
+  const h=(location.hash||'').replace('#','');
+  const saved=localStorage.getItem(LS_KEYS.side);
+  if(SIDES.includes(h)) sideView.cur=h; else if(SIDES.includes(saved)) sideView.cur=saved;
+}catch(e){}
+
+function setSide(side,persist=true){
+  if(!SIDES.includes(side)) side='long';
+  sideView.cur=side;
+  const main=document.querySelector('main'); if(main) main.setAttribute('data-side',side);
+  document.querySelectorAll('.side-tab').forEach(b=>{
+    const on=b.dataset.side===side;
+    b.classList.toggle('active',on);
+    b.setAttribute('aria-selected',on?'true':'false');
+    b.tabIndex=on?0:-1;
+  });
+  if(persist){ try{ localStorage.setItem(LS_KEYS.side,side); }catch(e){} }
+  renderSideTabs();
+  if(side!=='long') renderDual();
+}
+
+/* شمارنده‌ی روی تب‌ها — تعداد فرصت‌های واقعیِ هر جهت */
+function sideCounts(){
+  const cs=state.coins.filter(c=>c.a&&c.a.ok&&tradable(c));
+  const long=cs.filter(c=>gatePermit(c,'open')).length;
+  const short=cs.filter(c=>{const p=c.a.plans&&c.a.plans.short;return p&&p.valid&&p.state!=='blocked';}).length;
+  const conflict=cs.filter(c=>{const p=c.a.plans&&c.a.plans.short;
+    return p&&p.valid&&p.state!=='blocked'&&gatePermit(c,'any');}).length;
+  return {long,short,conflict};
+}
+function renderSideTabs(){
+  if(!$('#cntLong')) return;
+  const n=sideCounts();
+  $('#cntLong').textContent=n.long; $('#cntShort').textContent=n.short; $('#cntDual').textContent=n.conflict;
+  $('#tabLong').title=`${n.long} ارز مجاز دروازه برای ورود لانگ`;
+  $('#tabShort').title=`${n.short} فرصت شورت آماده یا منتظر پولبک`;
+  $('#tabBoth').title=`${n.conflict} دارایی با سیگنال هم‌زمان در هر دو جهت`;
+}
+
+/* نمای دوطرفه — تعارض لانگ/شورت از قبل در موتور بود ولی هرگز نمایش داده نمی‌شد */
+function renderDual(){
+  const box=$('#dualPanel'); if(!box) return;
+  const cs=state.coins.filter(c=>c.a&&c.a.ok&&tradable(c)&&c.a.plans);
+  const rows=cs.map(c=>{
+    const a=c.a, sp=a.plans.short, longOk=gatePermit(c,'open'), longWatch=gatePermit(c,'any');
+    const shortOk=sp&&sp.valid&&sp.state!=='blocked';
+    return {c,a,sp,longOk,longWatch,shortOk,conflict:shortOk&&longWatch};
+  }).filter(r=>r.longOk||r.shortOk)
+    .sort((x,y)=>(y.conflict-x.conflict)||(y.a.buyScore-x.a.buyScore))
+    .slice(0,24);
+  if(!rows.length){
+    box.innerHTML='<div class="empty" style="grid-column:1/-1;padding:26px;font-size:.82rem;line-height:1.9">در حال حاضر هیچ سیگنال مجازی در هیچ‌یک از دو جهت وجود ندارد.<br><span style="color:var(--muted)">عدم معامله هم یک خروجی معتبر است.</span></div>';
+    return;
+  }
+  box.innerHTML=rows.map(r=>{
+    const {c,a,sp}=r;
+    const cardCls=r.conflict?'conflict':r.longOk?'long-side':'short-side';
+    const longBox=`<div class="dual-side l"><b>🟢 لانگ — ${r.longOk?'مجاز':r.longWatch?'انتخابی':'بدون مجوز'}</b>
+      <div class="lv"><span>ورود</span><b>${fmtP(a.entry)}</b></div>
+      <div class="lv"><span>حد ضرر</span><b>${fmtP(a.stop)}</b></div>
+      <div class="lv"><span>هدف ۱</span><b>${fmtP(a.tp1)}</b></div>
+      <div class="lv"><span>امتیاز / RR</span><b>${a.buyScore} • ${a.rr.toFixed(1)}</b></div></div>`;
+    const shortBox=sp&&sp.valid?`<div class="dual-side s"><b>🔻 شورت — ${esc(SHORT_STATUS[sp.state]||'—')}</b>
+      <div class="lv"><span>ورود</span><b>${fmtP(sp.entry)}</b></div>
+      <div class="lv"><span>حد ضرر</span><b>${fmtP(sp.stop)}</b></div>
+      <div class="lv"><span>هدف ۱</span><b>${fmtP(sp.tp1)}</b></div>
+      <div class="lv"><span>امتیاز / RR</span><b>${sp.score} • ${sp.rr.toFixed(1)}</b></div></div>`
+      :'<div class="dual-side s"><b>🔻 شورت</b><div class="lv"><span>هندسه‌ی معتبری برای شورت وجود ندارد</span></div></div>';
+    const note=r.conflict
+      ? '<div class="dual-note warn">⚠️ تعارض جهت: هر دو سمت هم‌زمان سیگنال دارند. موتور در این حالت از ثبت خودکار جلوگیری می‌کند — یعنی ساختار بازار برای این دارایی قطعی نیست و بهترین کار صبر است.</div>'
+      : r.longOk
+        ? '<div class="dual-note">فقط سمت لانگ مجوز دارد؛ سمت شورت در شرایط فعلی رد شده است.</div>'
+        : '<div class="dual-note">فقط سمت شورت سیگنال دارد؛ ورود لانگ از دروازه عبور نکرده است.</div>';
+    return `<article class="dual-card ${cardCls}" data-action="open" data-id="${esc(c.id)}" role="button" tabindex="0" aria-label="نمایش تحلیل ${esc(c.name)}">
+      <h4><img src="${safeImg(c.image)}" alt="" loading="lazy">${esc(c.name)} <small>${esc(c.symbol.toUpperCase())}</small></h4>
+      <div class="dual-sides">${longBox}${shortBox}</div>${note}</article>`;
+  }).join('');
+}
+
+/* =====================================================================
+   خروجی ماشین‌خوان سیگنال‌ها — قرارداد JSON نسخه‌دار (schema 1.0)
+   پایه‌ی یک API واقعی. کاملاً محلی؛ هیچ درخواست خروجی ارسال نمی‌شود.
+   ===================================================================== */
+const SIGNAL_SCHEMA_VERSION='1.0';
+const DISCLAIMER='تحلیلی/آزمایشی — سیگنال قطعی معامله نیست. کارمزد، لغزش، فاندینگ و لیکوییدیشن محاسبه نشده است.';
+const num=(v,d=8)=>Number.isFinite(v)?Number(v.toFixed(d)):null;
+
+function longSignal(c){
+  const a=c.a, g=a.gate;
+  return {
+    side:'long', strategyVersion:'legacy-long-v1',
+    id:c.id, symbol:String(c.symbol||'').toUpperCase(), name:c.name,
+    price:num(c.current_price),
+    entry:{ best:num(a.entry), low:num(a.entryLo), high:num(a.entryHi), avg:num(a.avgEntry),
+      gapPct:num(a.entryGap,4), state:a.buyState, stateText:a.buyStateTxt,
+      ladder:(a.ladder||[]).map((s,i)=>({step:i+1,price:num(s.p),weight:s.w})) },
+    exit:{ stop:num(a.stop), tp1:num(a.tp1), tp2:num(a.tp2) },
+    risk:{ rr:num(a.rr,4), rrNow:num(a.rrNow,4), riskPct:num(a.riskPct,4), wideStop:!!a.wideStop },
+    score:{ buyScore:a.buyScore, grade:a.grade, technical:a.score, confidence:a.conf, category:a.cat },
+    gate:g?{ state:g.state, exempt:!!g.exempt, reasons:g.reasons||[],
+      thresholds:g.need?{score:g.need.score,rrNow:num(g.need.rrNow,4),rs7:num(g.need.rs7,4)}:null }:null,
+    context:{ rs7:num(a.rs7,4), pred7d:num(a.pred,4), rsi:num(a.rsi,2),
+      divergence:a.divergType||null, volatilityPct:num(a.dvol,4), marketCap:num(c.market_cap,2) },
+    disclaimer:DISCLAIMER
+  };
+}
+function shortSignal(c){
+  const p=c.a.plans&&c.a.plans.short; if(!p) return null;
+  return {
+    side:'short', strategyVersion:p.version,
+    id:c.id, symbol:String(c.symbol||'').toUpperCase(), name:c.name,
+    price:num(c.current_price),
+    entry:{ best:num(p.entry), low:num(p.entryLo), high:num(p.entryHi), avg:num(p.avgEntry),
+      state:p.state, stateText:SHORT_STATUS[p.state]||null, ladder:[] },
+    exit:{ stop:num(p.stop), tp1:num(p.tp1), tp2:num(p.tp2) },
+    risk:{ rr:num(p.rr,4), rrNow:num(p.rrNow,4), riskPct:num(p.riskPct,4), wideStop:false },
+    score:{ shortScore:p.score, technical:c.a.score },
+    gate:{ state:p.gate.state, exempt:false, reasons:p.gate.reasons||[],
+      thresholds:p.gate.need?{score:p.gate.need.score,rr:num(p.gate.need.rr,4)}:null },
+    context:{ rs7:num(c.a.rs7,4), rsi:num(c.a.rsi,2), divergence:c.a.divergType||null,
+      volatilityPct:num(c.a.dvol,4), marketCap:num(c.market_cap,2) },
+    valid:!!p.valid,
+    disclaimer:DISCLAIMER
+  };
+}
+function buildSignalPayload(opts={}){
+  const side=opts.side||'both', approvedOnly=opts.filter!=='all';
+  const cs=state.coins.filter(c=>c.a&&c.a.ok&&tradable(c));
+  const signals=[];
+  if(side!=='short') cs.forEach(c=>{
+    if(approvedOnly&&!gatePermit(c,'open')) return;
+    signals.push(longSignal(c));
+  });
+  if(side!=='long') cs.forEach(c=>{
+    const s=shortSignal(c); if(!s) return;
+    if(approvedOnly&&!(s.valid&&c.a.plans.short.state!=='blocked')) return;
+    signals.push(s);
+  });
+  signals.sort((x,y)=>(y.score.buyScore??y.score.shortScore??0)-(x.score.buyScore??x.score.shortScore??0));
+  const R=state.regime;
+  return {
+    schemaVersion:SIGNAL_SCHEMA_VERSION,
+    generatedAt:new Date().toISOString(),
+    dataAsOf:Number.isFinite(state.dataAt)?new Date(state.dataAt).toISOString():null,
+    dataFresh:shortFresh(),
+    source:'coingecko',
+    filter:{side,approvedOnly},
+    market:{ regime:R?R.k:null, regimeLabel:R?R.label:null, regimeScore:R?R.pts:null,
+      gate:state.gate?state.gate.state:null, gateMode:gate.mode,
+      fng:fngValue(), breadth:R?num(R.breadth,4):null, aboveSma20:R?num(R.above,4):null },
+    count:signals.length,
+    signals,
+    disclaimer:DISCLAIMER
+  };
+}
+function apiOptions(){
+  return { side:($('#apiSide')&&$('#apiSide').value)||'both',
+           filter:($('#apiFilter')&&$('#apiFilter').value)||'approved' };
+}
+function renderApiPreview(){
+  const pre=$('#apiPreview'); if(!pre) return;
+  const payload=buildSignalPayload(apiOptions());
+  const preview={...payload, signals:payload.signals.slice(0,2)};
+  pre.textContent=JSON.stringify(preview,null,2);
+  const s=$('#apiSummary');
+  if(s) s.textContent=payload.count
+    ? `${payload.count} سیگنال در خروجی • نمایش ۲ مورد اول • داده: ${payload.dataFresh?'تازه':'کهنه/آفلاین'}${payload.dataAsOf?` (${faTime(payload.dataAt||Date.parse(payload.dataAsOf))})`:''}`
+    : 'با این فیلتر سیگنالی وجود ندارد — عدم معامله هم یک خروجی معتبر است.';
+}
+function downloadSignalJSON(){
+  const payload=buildSignalPayload(apiOptions());
+  const stamp=new Date().toISOString().slice(0,16).replace('T','_').replace(':','-');
+  const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json;charset=utf-8;'});
+  const url=URL.createObjectURL(blob), link=document.createElement('a');
+  link.href=url; link.download=`cryptobin_signals_${stamp}.json`;
+  document.body.appendChild(link); link.click(); document.body.removeChild(link);
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+  toast(`⬇️ ${payload.count} سیگنال در قالب JSON دانلود شد`);
+}
+async function copySignalJSON(){
+  const payload=buildSignalPayload(apiOptions());
+  const text=JSON.stringify(payload,null,2);
+  try{
+    await navigator.clipboard.writeText(text);
+    toast(`📋 ${payload.count} سیگنال در کلیپ‌بورد کپی شد`);
+  }catch(e){ toast('⚠️ کپی خودکار ممکن نشد؛ از دکمه‌ی دانلود استفاده کنید'); }
+}
+function initSideUI(){
+  const tabs=$('#sideTabs');
+  if(tabs){
+    tabs.querySelectorAll('.side-tab').forEach(b=>{
+      b.onclick=()=>{ setSide(b.dataset.side); try{history.replaceState(null,'','#'+b.dataset.side);}catch(e){} };
+    });
+    // پیمایش تب‌ها با کلیدهای جهت‌دار — الگوی استاندارد tablist
+    tabs.onkeydown=e=>{
+      if(!['ArrowRight','ArrowLeft','Home','End'].includes(e.key)) return;
+      e.preventDefault();
+      const i=SIDES.indexOf(sideView.cur);
+      // RTL: فلش چپ یعنی تب بعدی
+      const next=e.key==='Home'?0:e.key==='End'?SIDES.length-1
+        :e.key==='ArrowLeft'?(i+1)%SIDES.length:(i-1+SIDES.length)%SIDES.length;
+      setSide(SIDES[next]); try{history.replaceState(null,'','#'+SIDES[next]);}catch(_){}
+      const el=document.querySelector(`.side-tab[data-side="${SIDES[next]}"]`); if(el) el.focus();
+    };
+  }
+  if($('#apiSide'))     $('#apiSide').onchange=renderApiPreview;
+  if($('#apiFilter'))   $('#apiFilter').onchange=renderApiPreview;
+  if($('#apiCopy'))     $('#apiCopy').onclick=copySignalJSON;
+  if($('#apiDownload')) $('#apiDownload').onclick=downloadSignalJSON;
+  setSide(sideView.cur,false);
+}
+
 /* ------------------------- Data fetching ------------------------- */
 async function getJSON(url){
   const controller=new AbortController();
@@ -749,7 +968,7 @@ function refreshModal(){
   $('#mshort').innerHTML=shortDetails(current);
   if(mainMeta)drawMain(mainMeta.prices,mainMeta.times);
 }
-function renderAll(){ updateShortPlans(); renderShorts(); renderOverview(); renderPulse(); renderCmp(); renderBest(); renderChips(); renderList(); refreshModal(); }
+function renderAll(){ updateShortPlans(); renderShorts(); renderOverview(); renderPulse(); renderFNG(); renderDual(); renderCmp(); renderBest(); renderChips(); renderList(); renderApiPreview(); renderSideTabs(); refreshModal(); }
 
 function renderOverview(){
   const g=state.global; const cs=state.coins.filter(c=>c.a.ok && tradable(c));
@@ -783,7 +1002,7 @@ function renderPulse(){
   drawGauge($('#mktGauge'),mscore,['#ef4444','#fb7185','#94a3b8','#fbbf24','#4ade80','#00e676']);
   const label=mpred>4?'صعودی قوی 🚀':mpred>1.5?'صعودی 📈':mpred>-1.5?'خنثی / نوسانی ↔️':mpred>-4?'نزولی 📉':'نزولی قوی 🩸';
   $('#mktForecast').textContent=label; $('#mktForecast').className='forecast-big '+(mpred>=0?'up':'down');
-  const fng=state.fng?parseInt(state.fng.value):null;
+  const fng=fngValue();
   let extra=''; if(fng!=null){ if(fng<25&&mscore<45) extra=' | ترس شدید + ضعف تکنیکال: تاریخاً منطقه انباشت هوشمند'; else if(fng>75&&mscore>60) extra=' | طمع شدید: مراقب اصلاح ناگهانی باشید'; }
   $('#mktForecastSub').textContent=`امتیاز وزنی بازار: ${mscore.toFixed(0)}/100 • بازده مورد انتظار هفته: ${pct(mpred,1)}${extra}`;
   const counts={}; Object.keys(CATS).forEach(k=>counts[k]=0); cs.forEach(c=>counts[c.a.cat]++);
@@ -849,13 +1068,30 @@ function renderTradeStrip(){
   el.innerHTML=html;
 }
 
+/* مقدار عددی معتبر شاخص ترس و طمع (۰ تا ۱۰۰) یا null — یک مرجع واحد برای گیج، رژیم و دروازه.
+   مقدار نامعتبر باید null شود، نه NaN؛ وگرنه NaN به گیج و گاردریل‌های دروازه نشت می‌کند. */
+function fngValue(){
+  const raw=state.fng&&state.fng.value;
+  const v=typeof raw==='number'?raw:parseInt(raw,10);
+  return Number.isFinite(v)&&v>=0&&v<=100 ? v : null;
+}
+const FNG_COLORS=['#ef4444','#fb7185','#fbbf24','#4ade80','#00e676'];
 function renderFNG(){
-  const f=state.fng; const cv=$('#fngGauge');
-  if(!f){ $('#fngVal').textContent='—'; $('#fngTxt').textContent='داده در دسترس نیست'; drawGauge(cv,50,['#ef4444','#fb7185','#fbbf24','#4ade80','#00e676']); return; }
-  const v=parseInt(f.value); drawGauge(cv,v,['#ef4444','#fb7185','#fbbf24','#4ade80','#00e676']);
+  const cv=$('#fngGauge'); if(!cv) return;
+  const v=fngValue();
+  if(v==null){
+    drawGauge(cv,50,FNG_COLORS);
+    $('#fngVal').textContent='—'; $('#fngVal').style.color='';
+    $('#fngTxt').textContent='داده در دسترس نیست';
+    $('#fngHint').textContent='سرویس Alternative.me پاسخ معتبری نداد؛ گاردریل ترس/طمع در دروازه‌ی رژیم این چرخه اعمال نمی‌شود.';
+    return;
+  }
+  drawGauge(cv,v,FNG_COLORS);
   const map={'Extreme Fear':'ترس شدید','Fear':'ترس','Neutral':'خنثی','Greed':'طمع','Extreme Greed':'طمع شدید'};
+  const cls=state.fng&&state.fng.value_classification;
+  const label=map[cls]||cls||(v<25?'ترس شدید':v<45?'ترس':v<55?'خنثی':v<75?'طمع':'طمع شدید');
   $('#fngVal').textContent=v; $('#fngVal').style.color=v<25?'#ef4444':v<45?'#fb7185':v<55?'#fbbf24':v<75?'#4ade80':'#00e676';
-  $('#fngTxt').textContent=map[f.value_classification]||f.value_classification;
+  $('#fngTxt').textContent=label;
   $('#fngHint').textContent=v<25?'💡 ترس شدید معمولاً فرصت‌های خرید پله‌ای ایجاد می‌کند (وارن بافت: وقتی دیگران می‌ترسند، طمع کنید).':v>75?'💡 طمع شدید هشدار احتیاط است؛ ذخیره سود و کاهش اهرم توصیه می‌شود.':'💡 احساسات بازار در محدوده طبیعی؛ تصمیم‌ها را بر پایه تکنیکال و دروازه‌ی رژیم بگیرید.';
 }
 
@@ -1198,7 +1434,8 @@ try{
   if([30,60,90,180,300].includes(m.iv)) mon.iv=m.iv;
   if(typeof m.sound==='boolean') mon.sound=m.sound;
   if(typeof m.notif==='boolean') mon.notif=m.notif;
-  if(['all','buy','watch'].includes(m.filter)) mon.filter=m.filter;
+  // 'short' is a valid saved filter too; omitting it silently reset the user's choice on reload.
+  if(['all','buy','watch','short'].includes(m.filter)) mon.filter=m.filter;
   mon.left=mon.iv;
 }catch(e){}
 function monSave(){ try{ localStorage.setItem(LS_KEYS.mon, JSON.stringify({on:mon.on, iv:mon.iv, sound:mon.sound, notif:mon.notif, filter:mon.filter})); }catch(e){} }
@@ -1643,6 +1880,7 @@ renderPerf();
 syncGateUI();
 initMonUI();
 initShortUI();
+initSideUI();
 setMon(mon.on);
 loadAll();
 setInterval(tick, 1000);
