@@ -49,6 +49,7 @@
   .btn:hover{border-color:var(--accent);transform:translateY(-1px)}
   .btn.primary{background:linear-gradient(135deg,var(--accent),#5b3fe0);border:none;box-shadow:0 6px 20px rgba(124,92,255,.35)}
   .btn.active{border-color:var(--accent);background:rgba(124,92,255,.16);box-shadow:0 0 0 1px var(--accent) inset}
+  :where(button,input,select,[role="button"],[tabindex]):focus-visible{outline:3px solid var(--accent2);outline-offset:3px}
   .btn.spin svg{animation:rot 1s linear infinite}
   @keyframes rot{to{transform:rotate(360deg)}}
 
@@ -421,6 +422,10 @@
     .ind{gap:4px}
     .ind div{padding:5px 4px;font-size:.64rem}
     .ind div b{font-size:.78rem}
+  }
+  @media(prefers-reduced-motion:reduce){
+    html{scroll-behavior:auto}
+    *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
   }
 </style>
 </head>
@@ -1227,9 +1232,21 @@ async function getJSON(url){ const r=await fetch(url); if(!r.ok){ const e=new Er
 async function loadAll(manual=false){
   if(state.loading) return;
   state.loading=true;
-  const btn=$('#refreshBtn'); btn.classList.add('spin'); $('#statusTxt').textContent='در حال واکشی داده از CoinGecko…';
+  const btn=$('#refreshBtn'); btn.classList.add('spin'); btn.disabled=true; btn.setAttribute('aria-busy','true'); $('#statusTxt').textContent='در حال واکشی داده از CoinGecko…';
   try{
-    const coins=await getJSON(`${API}/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=100&page=1&sparkline=true&price_change_percentage=1h%2C24h%2C7d%2C30d`);
+    // منابع مستقل را هم‌زمان می‌گیریم؛ اما خرابی سرویس‌های جانبی نباید داده‌ی اصلی قیمت را از کار بیندازد.
+    // مهم‌تر: FNG باید پیش از applyMarketContext آماده باشد، وگرنه گاردریل ترس/طمع یک چرخه عقب می‌ماند.
+    const [coinsResult, globalResult, fngResult]=await Promise.allSettled([
+      getJSON(`${API}/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=100&page=1&sparkline=true&price_change_percentage=1h%2C24h%2C7d%2C30d`),
+      getJSON(`${API}/global`),
+      getJSON('https://api.alternative.me/fng/?limit=1')
+    ]);
+    if(coinsResult.status==='rejected') throw coinsResult.reason;
+    const coins=coinsResult.value;
+    if(!Array.isArray(coins) || !coins.length) throw new Error('پاسخ خالی یا نامعتبر CoinGecko');
+    if(globalResult.status==='fulfilled' && globalResult.value?.data) state.global=globalResult.value.data;
+    if(fngResult.status==='fulfilled' && fngResult.value?.data?.[0]) state.fng=fngResult.value.data[0];
+    else state.fng=null;
     state.coins=coins.map(c=>({...c, a:analyze(c)}));
     applyMarketContext();
     try{ localStorage.setItem(LS_KEYS.cache, JSON.stringify({t:Date.now(), coins:coins})); }catch(e){ try{ localStorage.removeItem(LS_KEYS.cache); }catch(_){} }
@@ -1244,12 +1261,10 @@ async function loadAll(manual=false){
     if(cache){ state.coins=cache.coins.map(c=>({...c,a:analyze(c)})); applyMarketContext(); $('#statusTxt').textContent='آفلاین — نمایش آخرین داده ذخیره‌شده ('+faTime(cache.t)+')'; toast('⚠️ محدودیت نرخ درخواست یا قطع اتصال؛ داده کش‌شده نمایش داده می‌شود'); }
     else { $('#statusTxt').textContent='خطا در اتصال'; toast('❌ عدم دسترسی به مرجع داده. چند لحظه بعد دوباره تلاش کنید'); }
   }
-  btn.classList.remove('spin');
+  btn.classList.remove('spin'); btn.disabled=false; btn.removeAttribute('aria-busy');
   state.loading=false;
   renderAll();
   afterCycle();
-  getJSON(`${API}/global`).then(g=>{state.global=g.data; renderOverview();}).catch(()=>{});
-  getJSON('https://api.alternative.me/fng/?limit=1').then(f=>{state.fng=f.data[0]; renderFNG(); renderRegime();}).catch(()=>{ state.fng=null; renderFNG(); renderRegime(); });
 }
 
 /* ------------------------- Rendering ------------------------- */
@@ -1439,7 +1454,7 @@ function renderList(){
   if(state.view==='cards'){
     sec.innerHTML='<div class="grid" id="grid"></div>';
     $('#grid').innerHTML=l.map((c,i)=>{ const a=c.a, C=CATS[a.cat]; return `
-      <div class="card" style="--catc:${C.c};animation-delay:${Math.min(i,20)*25}ms" onclick="openModal('${esc(c.id)}')" role="article" aria-label="${esc(c.name)}">
+      <div class="card" style="--catc:${C.c};animation-delay:${Math.min(i,20)*25}ms" onclick="openModal('${esc(c.id)}')" role="button" tabindex="0" aria-label="نمایش تحلیل ${esc(c.name)}">
         <div class="c-head"><img src="${safeImg(c.image)}" alt="" loading="lazy"><div class="nm"><b>${esc(c.name)}${a.kind!=='asset'?`<span class="kind">${KIND_LABEL[a.kind]}</span>`:''}</b><span>${esc(c.symbol.toUpperCase())} <span class="rank">#${esc(c.market_cap_rank)}</span> • ${fmtBig(c.market_cap)}</span></div>
           <button class="star ${state.watch.includes(c.id)?'on':''}" onclick="event.stopPropagation();toggleWatch('${esc(c.id)}')" aria-label="افزودن به علاقه‌مندی‌ها" aria-pressed="${state.watch.includes(c.id)}">★</button>
           <button class="star-cmp ${state.cmp.includes(c.id)?'on':''}" onclick="event.stopPropagation();toggleCmp('${esc(c.id)}')" aria-label="افزودن به مقایسه" aria-pressed="${state.cmp.includes(c.id)}">⚖️</button></div>
@@ -1470,13 +1485,19 @@ function renderList(){
 function toggleWatch(id){ const i=state.watch.indexOf(id); i>=0?state.watch.splice(i,1):state.watch.push(id); try{localStorage.setItem(LS_KEYS.watch,JSON.stringify(state.watch));}catch(e){} $('#watchCount').textContent=state.watch.length; renderList(); renderAlerts(); toast(i>=0?'از علاقه‌مندی‌ها حذف شد':'⭐ به علاقه‌مندی‌ها اضافه شد',1500); }
 
 /* ------------------------- Modal & detailed charts ------------------------- */
+let modalReturnFocus=null;
 async function openModal(id){
   const c=state.coins.find(x=>x.id===id); if(!c) return; state.modalCoin=c; state.tf=7;
+  modalReturnFocus=document.activeElement;
   document.querySelectorAll('.tf').forEach(b=>{ const on=b.dataset.d==='7'; b.classList.toggle('active',on); b.setAttribute('aria-pressed', on?'true':'false'); });
   $('#modal').classList.add('open'); document.body.style.overflow='hidden';
-  renderModalInfo(c); await loadAndDrawChart();
+  renderModalInfo(c); $('#mclose').focus(); await loadAndDrawChart();
 }
-function closeModal(){ $('#modal').classList.remove('open'); document.body.style.overflow=''; }
+function closeModal(){
+  $('#modal').classList.remove('open'); document.body.style.overflow='';
+  if(modalReturnFocus && typeof modalReturnFocus.focus==='function') modalReturnFocus.focus();
+  modalReturnFocus=null;
+}
 
 function renderModalInfo(c){
   const a=c.a,C=CATS[a.cat];
@@ -1616,7 +1637,7 @@ function renderBest(){
   const medals=['🥇','🥈','🥉'];
   cardsEl.innerHTML=l.slice(0,3).map((c,i)=>{
     const a=c.a, C=CATS[a.cat];
-    return `<div class="bcard" style="animation-delay:${i*70}ms" onclick="openModal('${esc(c.id)}')" role="article" aria-label="${esc(c.name)}">
+    return `<div class="bcard" style="animation-delay:${i*70}ms" onclick="openModal('${esc(c.id)}')" role="button" tabindex="0" aria-label="نمایش تحلیل ${esc(c.name)}">
       <div class="medal" aria-hidden="true">${medals[i]}</div>
       <div class="bh" style="padding-inline-start:44px">
         <img src="${safeImg(c.image)}" alt="" loading="lazy">
@@ -2086,7 +2107,13 @@ $('#sort').onchange=e=>{state.sort=e.target.value; try{localStorage.setItem(LS_K
 $('#viewToggle').querySelectorAll('button').forEach(b=>b.onclick=()=>{ state.view=b.dataset.v; try{localStorage.setItem(LS_KEYS.view, state.view);}catch(_){} $('#viewToggle').querySelectorAll('button').forEach(x=>{ const on=x===b; x.classList.toggle('active',on); x.setAttribute('aria-pressed', on?'true':'false'); }); renderList(); });
 $('#watchChip').onclick=()=>{ state.watchOnly=!state.watchOnly; $('#watchChip').classList.toggle('active',state.watchOnly); $('#watchChip').setAttribute('aria-pressed', state.watchOnly?'true':'false'); if(state.watchOnly){state.filter='all';renderChips();} renderList(); toast(state.watchOnly?'⭐ فقط علاقه‌مندی‌ها نمایش داده می‌شوند':'⭐ نمایش همه ارزها'); };
 $('#mclose').onclick=closeModal; $('#modal').onclick=e=>{ if(e.target.id==='modal') closeModal(); };
-document.addEventListener('keydown',e=>{ if(e.key==='Escape' && $('#modal').classList.contains('open')) closeModal(); });
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape' && $('#modal').classList.contains('open')){ closeModal(); return; }
+  // کارت‌ها و ردیف‌های پویای کلیک‌پذیر باید با صفحه‌کلید نیز فعال شوند.
+  if((e.key==='Enter'||e.key===' ') && e.target?.getAttribute?.('role')==='button' && e.target.tagName!=='BUTTON'){
+    e.preventDefault(); e.target.click();
+  }
+});
 document.querySelectorAll('.tf').forEach(b=>b.onclick=()=>{ state.tf=+b.dataset.d; document.querySelectorAll('.tf').forEach(x=>{ const on=x===b; x.classList.toggle('active',on); x.setAttribute('aria-pressed', on?'true':'false'); }); loadAndDrawChart(); });
 ['ovSma20','ovSma50','ovBB','ovPred'].forEach(id=>{ const el=$('#'+id); if(el) el.onchange=()=>loadAndDrawChart(); });
 let rz; window.addEventListener('resize',()=>{ clearTimeout(rz); rz=setTimeout(()=>{ renderList(); if($('#modal').classList.contains('open')) loadAndDrawChart(); },200); });
