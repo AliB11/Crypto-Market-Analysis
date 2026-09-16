@@ -16,7 +16,7 @@ assert.match(app,/CACHE_MAX_AGE_MS=6\*60\*60\*1000/);
 assert.match(app,/cache\?\.v===CACHE_VERSION/);
 assert.match(app,/new Worker\('indicator-worker\.js'\)/);
 assert.match(css,/prefers-reduced-motion/);
-assert.match(sw,/cryptobin-shell-v5/);
+assert.match(sw,/cryptobin-shell-v6/);
 
 /* تب‌ها: ماتریس نمایش باید در CSS درست باشد — این بخش با DOM ساختگی Node پوشش داده نمی‌شود */
 {
@@ -36,6 +36,16 @@ assert.match(sw,/cryptobin-shell-v5/);
   assert.match(html,/role="tablist"/,'تب‌ها باید نقش tablist داشته باشند');
   assert.equal((html.match(/role="tab"/g)||[]).length,3,'باید دقیقاً سه تب وجود داشته باشد');
   assert.match(html,/aria-selected="true"/,'تب فعال باید aria-selected داشته باشد');
+  /* هر aria-controls باید به بخشی اشاره کند که واقعاً role="tabpanel" دارد */
+  const panels=new Set([...html.matchAll(/<section id="([^"]+)"[^>]*role="tabpanel"/g)].map(m=>m[1]));
+  const controlled=[...html.matchAll(/aria-controls="([^"]+)"/g)].flatMap(m=>m[1].split(/\s+/));
+  assert.ok(controlled.length>0,'تب‌ها باید aria-controls داشته باشند');
+  controlled.forEach(id=>assert.ok(panels.has(id),`aria-controls به #${id} اشاره می‌کند ولی آن بخش role="tabpanel" ندارد`));
+  /* هر tabpanel باید با aria-labelledby به تب خودش وصل باشد */
+  [...html.matchAll(/<section id="([^"]+)"[^>]*role="tabpanel"[^>]*aria-labelledby="([^"]+)"[^>]*data-tab="([^"]+)"/g)]
+    .forEach(([,id,lab])=>assert.match(html,new RegExp(`id="${lab}"[^>]*role="tab"|role="tab"[^>]*id="${lab}"`),
+      `بخش #${id} به تب ناموجود ${lab} ارجاع می‌دهد`));
+  assert.equal(panels.size,4,'هر چهار بخش وابسته به تب باید tabpanel باشند');
 }
 /* کامنت نادرست بالای بخش شورت نباید برگردد */
 assert.doesNotMatch(html,/Track record \/ backtest/,'کامنت نادرست بالای بخش شورت هنوز هست');

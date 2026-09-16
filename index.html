@@ -101,7 +101,7 @@
 
   <!-- Long / Short side tabs -->
   <div class="side-tabs" id="sideTabs" role="tablist" aria-label="انتخاب جهت معامله">
-    <button class="side-tab active" role="tab" data-side="long" id="tabLong" aria-selected="true" aria-controls="bestSec" tabindex="0">
+    <button class="side-tab active" role="tab" data-side="long" id="tabLong" aria-selected="true" aria-controls="bestSec perfSec" tabindex="0">
       <span class="ico" aria-hidden="true">🟢</span><span class="lbl">سیگنال‌های لانگ</span><span class="tcount" id="cntLong">—</span>
     </button>
     <button class="side-tab" role="tab" data-side="short" id="tabShort" aria-selected="false" aria-controls="shortSec" tabindex="-1">
@@ -113,7 +113,7 @@
   </div>
 
   <!-- Dual (both sides) overview -->
-  <section id="dualSec" data-tab="both">
+  <section id="dualSec" role="tabpanel" aria-labelledby="tabBoth" data-tab="both">
     <div class="sec-title"><span class="bar"></span>⚖️ نمای دوطرفه — لانگ در برابر شورت
       <span class="hint">مقایسه‌ی هم‌زمان دو جهت و نمایش تعارض‌ها؛ منطق تعارض از قبل در موتور وجود داشت ولی نمایش داده نمی‌شد</span></div>
     <div class="dual-grid" id="dualPanel"></div>
@@ -132,7 +132,7 @@
   </section>
 
   <!-- Best coins to buy -->
-  <section id="bestSec" data-tab="long">
+  <section id="bestSec" role="tabpanel" aria-labelledby="tabLong" data-tab="long">
     <div class="sec-title"><span class="bar"></span>🏆 بهترین رمزارزها برای خرید
       <button class="btn" id="csvBtn" style="margin-inline-start:auto;font-size:.78rem" aria-label="دریافت خروجی CSV از جدول بهترین‌ها">⬇️ خروجی CSV</button> <button class="btn" id="gateOnlyBtn" style="font-size:.78rem" aria-pressed="false" title="فقط ارزهایی که از دروازه‌ی رژیم عبور کرده‌اند نمایش داده شوند">🚦 فقط مجازهای دروازه</button>
       <span class="hint" style="flex-basis:100%">رتبه‌بندی بر پایه «امتیاز فرصت خرید» = تکنیکال + پیش‌بینی + ریسک/بازده + فاصله تا ورود + نقدشوندگی + رژیم بازار + قدرت نسبی به BTC • استیبل‌کوین‌ها و توکن‌های رَپ‌شده حذف شده‌اند • «دروازه‌ی رژیم» ورودهای بدون تأیید را مسدود می‌کند</span></div>
@@ -142,7 +142,7 @@
   </section>
 
   <!-- Independent short research workspace -->
-  <section id="shortSec" data-tab="short">
+  <section id="shortSec" role="tabpanel" aria-labelledby="tabShort" data-tab="short">
     <div class="sec-title"><span class="bar"></span>🔻 فرصت‌های شورت — آزمایشی</div>
     <p class="short-warning">استراتژی ادامه نزول پس از پولبک • بدون سفارش، اهرم و تضمین امکان شورت در صرافی. هزینه، فاندینگ و لیکوییدیشن محاسبه نمی‌شوند. بخش‌های «بهترین خرید» و کارنامه اصلی همچنان مخصوص لانگ هستند.</p>
     <div class="short-controls">
@@ -157,7 +157,7 @@
     <div class="short-table"><table><thead><tr><th>دارایی / جهت</th><th>وضعیت</th><th>ورود</th><th>حد ضرر</th><th>هدف اول</th><th>بازده ناخالص</th></tr></thead><tbody id="shortHistory"></tbody></table></div>
   </section>
 
-  <section id="perfSec" data-tab="long">
+  <section id="perfSec" role="tabpanel" aria-labelledby="tabLong" data-tab="long">
     <div class="sec-title"><span class="bar"></span>📊 کارنامه عملکرد سیگنال‌ها
       <span class="hint">هر سیگنال «خرید قوی» یا امتیاز خرید ≥۷۸ که از دروازه عبور کند ثبت و پس از ۷ روز یا برخورد به هدف/حد ضرر نتیجه‌اش سنجیده می‌شود — بدون بک‌اند، در همین مرورگر</span>
       <button class="btn" id="perfReset" style="margin-inline-start:auto;font-size:.75rem" aria-label="پاک کردن کارنامه">🗑️ ریست</button>

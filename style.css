@@ -335,7 +335,8 @@
     body::before,body::after{animation:none}
   }
   @media print{
-    body::before,body::after,header,.controls,.mon-grid,footer .btn,#modal{display:none !important}
+    body::before,body::after,header,.controls,.mon-grid,footer .btn,#modal,
+    .side-tabs,.api-controls,#apiPreview{display:none !important}
     body{background:#fff;color:#000}
     .panel,.card,.bcard,.stat{border:1px solid #ccc;background:#fff;break-inside:avoid}
     .bcard .entry .big,.btbl b{color:#000 !important}

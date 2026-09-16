@@ -91,7 +91,7 @@ try{
  page.on('pageerror',e=>errors.push(e.message));
  await page.goto(base);await page.evaluate(()=>navigator.serviceWorker.ready);
  await wait(page,()=>!!navigator.serviceWorker.controller);
- assert.ok((await page.evaluate(()=>caches.keys())).includes('cryptobin-shell-v5'));
+ assert.ok((await page.evaluate(()=>caches.keys())).includes('cryptobin-shell-v6'));
  await context.setOffline(true);await page.reload();
  await wait(page,()=>!state.loading);
  // Fresh context starts on the long tab; the short workspace is reachable via its tab.
