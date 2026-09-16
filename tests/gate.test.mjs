@@ -11,6 +11,7 @@
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
 import assert from 'node:assert/strict';
+import {market} from './fixtures.mjs';
 
 /* ------------------------- DOM ساختگی ------------------------- */
 function ctx2d(){
@@ -46,86 +47,22 @@ function makeStorage(){
 }
 
 /* داده‌ی ساختگی بازار — سری قیمتی ساعتگی ۷ روزه */
-function series(start, drift, n=168, vol=0.0035, seed=7){
-  const out=[]; let p=start, s=seed;
-  const rnd=()=>{ s=(s*1103515245+12345)&0x7fffffff; return s/0x7fffffff; };
-  for(let i=0;i<n;i++){ p=p*(1+drift+(rnd()-0.5)*vol); out.push(Number(p.toFixed(8))); }
-  return out;
-}
-/* سقوط شتاب‌دار با ساعت‌های سبز پراکنده: RSI پایین ولی هیستوگرام MACD همچنان
-   نزولی — یعنی بازار واقعاً در حال ریختن است، نه یک اصلاح ساده */
-function dumpSeries(start, seed=3, n=168, accel=0.0003, up=0.004){
-  const out=[]; let p=start, s=seed;
-  const rnd=()=>{ s=(s*1103515245+12345)&0x7fffffff; return s/0x7fffffff; };
-  for(let i=0;i<n-48;i++){ p*=(1-0.0006+(rnd()-0.5)*0.005); out.push(Number(p.toFixed(8))); }
-  for(let i=0;i<48;i++){ const d=0.004+accel*i; p*= (i%6===5)?(1+up):(1-d); out.push(Number(p.toFixed(8))); }
-  return out;
-}
-/* روند صعودی که در ۲۴ ساعت آخر اصلاح کرده — یعنی هم‌نزدیک محدوده‌ی خرید است */
-function pullbackSeries(start, drift, pull, n=168, vol=0.0035, seed=7){
-  const head=series(start, drift, n-24, vol, seed);
-  const tail=series(head.at(-1), pull, 24, vol, seed+5);
-  return [...head, ...tail];
-}
-function coin(id,symbol,name,o){
-  return {id, symbol, name, market_cap_rank:o.rank, current_price:o.price, market_cap:o.mc, total_volume:o.vol,
-    ath:o.price*3, ath_change_percentage:-66, high_24h:o.price*1.02, low_24h:o.price*0.98,
-    circulating_supply:1e8, total_supply:1e9,
-    price_change_percentage_1h_in_currency:o.ch1, price_change_percentage_24h_in_currency:o.ch24,
-    price_change_percentage_7d_in_currency:o.ch7, price_change_percentage_30d_in_currency:o.ch30,
-    sparkline_in_7d:{price:o.spark}};
-}
-/* حجم معاملات ~۵٪ ارزش بازار تا شرط نقدشوندگی دروازه برقرار باشد */
-function alt(id,sym,name,rank,price,spark,ch7,i){
-  const mc=price*1e8*(10-i);
-  return coin(id,sym,name,{rank,price:spark.at(-1),mc,vol:mc*0.05,
-    ch1:ch7/40, ch24:ch7/4, ch7, ch30:ch7*1.6, spark});
-}
-function market(kind){
-  const up = kind==='riskon';
-  const btc = up ? series(60000, 0.0009) : dumpSeries(60000, 3);
-  const coins=[coin('bitcoin','btc','Bitcoin',{rank:1,price:btc.at(-1),mc:1.2e12,vol:1.2e12*0.03,
-    ch1:up?0.4:-1.2, ch24:up?2.4:-4.5, ch7:up?9:-16, ch30:up?15:-27, spark:btc})];
-  // آلت‌ها: یک پیشروی اصلاح‌کرده، یک صعودی شارپ، و بقیه ضعیف
-  const defs = up
-    ? [['solana','sol','Solana',4,140, pullbackSeries(128,0.0016,-0.0026), 12, 3],
-       ['chainlink','link','Chainlink',14,17, series(15.6,0.0013), 13, 7],
-       ['avalanche-2','avax','Avalanche',22,31, series(31,0.0002), 1, 11],
-       ['cardano','ada','Cardano',9,0.48, series(0.48,0.0001), 0, 13],
-       ['dogecoin','doge','Dogecoin',8,0.16, series(0.17,-0.0009), -10, 17],
-       ['near','near','NEAR',34,5.2, series(5.6,-0.0013), -16, 19],
-       ['arbitrum','arb','Arbitrum',46,0.92, series(1.0,-0.0017), -22, 23]]
-    : [['solana','sol','Solana',4,140, dumpSeries(140,5), -18, 5],
-       ['chainlink','link','Chainlink',14,17, dumpSeries(17,9), -20, 9],
-       ['avalanche-2','avax','Avalanche',22,31, dumpSeries(31,13), -23, 13],
-       ['cardano','ada','Cardano',9,0.48, dumpSeries(0.48,17), -17, 17],
-       ['dogecoin','doge','Dogecoin',8,0.16, dumpSeries(0.16,21), -25, 21],
-       ['near','near','NEAR',34,5.2, dumpSeries(5.2,25), -28, 25],
-       ['arbitrum','arb','Arbitrum',46,0.92, dumpSeries(0.92,29), -31, 29]];
-  defs.forEach(([id,sym,name,rank,price,spark,ch7],i)=>coins.push(alt(id,sym,name,rank,price,spark,ch7,i)));
-  // یک استیبل‌کوین و یک توکن رَپ‌شده — باید از دروازه مستثنا شوند
-  coins.push(coin('tether','usdt','Tether',{rank:5,price:1,mc:1.1e11,vol:5e10,ch1:0,ch24:0.01,ch7:0.02,ch30:0.01,spark:series(1,0,168,0.0001)}));
-  coins.push(coin('wrapped-steth','steth','Lido Staked Ether',{rank:12,price:btc.at(-1)*0.05,mc:9e9,vol:2e7,
-    ch1:up?0.4:-1.1, ch24:up?2.3:-4.4, ch7:up?8.8:-15.8, ch30:up?14:-26, spark: up? series(btc.at(-1)*0.05, 0.0008) : dumpSeries(btc.at(-1)*0.05, 31)}));
-  return coins;
-}
-
 /* ------------------------- اجرای اسکریپت واقعی برنامه ------------------------- */
 const EXPORTS='state,gate,mon,perf,REGIMES,GATE_STATES,GATE_RULES,GATE_STRICT,bestList,applyMarketContext,'
   +'evalMarketGate,evalCoinGate,gatePermit,gateRank,gateStats,gateBadge,detectEvents,perfCycle,perfOpen,'
   +'exportCSV,renderGate,renderRegime,renderBest,renderList,renderModalInfo,renderCmp,renderAlerts,renderPerf,'
-  +'syncGateUI,loadAll,setMon';
+  +'syncGateUI,loadAll,setMon,shorts,shortCycle,updateShortPlans,renderShorts,exportShortCSV,shortCoinFresh,shortOptions,shortFresh,shortFreshKey,refreshModal,tick,pushAlert,marketRows,analyze,computeIndicatorsInWorker';
 
 function boot(kind, gateCfg={}){
   const app=readFileSync(new URL('../app.js',import.meta.url),'utf8');
-  const code=app
+  const code=readFileSync(new URL('../short-engine.js',import.meta.url),'utf8')+'\n'+app
     +`\n;globalThis.__api={${EXPORTS}, trd:typeof tradable!=='undefined'?tradable:null};`;
 
   const store=makeStorage();
   if(gateCfg.mode) store.setItem('cb_gate_v1', JSON.stringify(gateCfg));
   els.clear();
 
-  let csvText=null;
+  let csvText=null; const network={fail:false}; const notices=[];
   class Blob{ constructor(parts){ csvText=parts.join(''); } }
   const document={
     querySelector:sel=>{ if(!els.has(sel)) els.set(sel,makeEl()); return els.get(sel); },
@@ -133,13 +70,14 @@ function boot(kind, gateCfg={}){
     createElement:t=>makeEl(t), body:makeEl('body'), documentElement:makeEl('html')
   };
   const sandbox={
-    document, console, Blob, URL:{createObjectURL:()=>'blob:stub', revokeObjectURL(){}},
+    document, console, Blob, AbortController, URL:{createObjectURL:()=>'blob:stub', revokeObjectURL(){}},
     localStorage:store, setTimeout, clearTimeout, setInterval:()=>0, clearInterval:()=>{},
     requestAnimationFrame:cb=>{ try{ cb(0); }catch(e){} return 0; },
-    Notification:{permission:'default', requestPermission:async()=>'denied'},
+    Notification:class {static permission='granted'; static async requestPermission(){return 'granted';} constructor(title,body){notices.push({title,body});}},
     addEventListener(){}, removeEventListener(){},
     navigator:{userAgent:'node'}, performance:{now:()=>Date.now()},
     fetch:async url=>{
+      if(network.fail)throw new Error('test offline');
       const u=String(url);
       if(u.includes('/coins/markets')) return {ok:true, status:200, json:async()=>market(kind)};
       if(u.includes('/global')) return {ok:true, status:200, json:async()=>({data:{
@@ -152,7 +90,7 @@ function boot(kind, gateCfg={}){
   sandbox.window=sandbox; sandbox.globalThis=sandbox;
   vm.createContext(sandbox);
   vm.runInContext(code, sandbox, {filename:'index.html'});
-  return {api:sandbox.__api, getCsv:()=>csvText, store};
+  return {api:sandbox.__api, getCsv:()=>csvText, store,network,notices,sandbox};
 }
 
 async function settled(api, tries=200){
@@ -322,6 +260,91 @@ test('رندر: پنل دروازه، کارت‌ها، جدول‌ها و مو�
 });
 
 function document_el(sel){ return els.get('#'+sel) || null; }
+
+
+/* Integration tests run the real app and the independent short engine together. */
+async function shortFixture(){
+  const booted=boot('riskoff');await settled(booted.api);
+  const api=booted.api,c=api.state.coins.find(c=>c.id==='solana');
+  Object.assign(c,{current_price:99});
+  Object.assign(c.a,{ok:true,kind:'asset',prices:[],sma20:100,sma50:110,ema20:101,support:95,resist:101,low7:90,dvol:1,slopeH:-0.2,macd:-2,sig:-1,hist:-1,histPrev:-0.5,rsi:45,rsiPrev:46,rs7:-2,volRatio:0.1,ch24:-2,buyScore:0,buyState:'wait'});
+  api.state.coins=[c,api.state.coins.find(x=>x.id==='bitcoin')];api.state.regime={k:'riskoff',fng:40,btcAvailable:true};
+  api.state.liveData=true;api.state.dataAt=Date.now();api.perf.rec=[];api.shorts.records=[];api.shorts.enabled=true;
+  return {...booted,c};
+}
+test('شورت: انتظار، ورود تأییدشده، سطوح ثابت، هدف و جلوگیری از تکرار',async()=>{
+ const {api,c}=await shortFixture();api.shortCycle();
+ assert.equal(api.shorts.records.length,1);const r=api.shorts.records[0];assert.equal(r.status,'waiting');assert.equal(r.fill,undefined);
+ const stop=r.stop;c.current_price=100;api.shortCycle();assert.equal(r.status,'active');assert.equal(r.fill,100);
+ api.shortCycle();assert.equal(api.shorts.records.length,1);
+ c.a.resist=120;c.current_price=94;api.shortCycle();assert.equal(r.status,'win');assert.equal(r.ret,6);assert.equal(r.stop,stop);
+ assert.ok(api.mon.alerts.some(a=>a.kind==='short'));
+ assert.equal(api.shorts.records.length,1);
+});
+test('شورت: آفلاین، تاریخ منبع کهنه و تعارض لانگ مانع ورود می‌شوند',async()=>{
+ const {api,c}=await shortFixture();api.state.liveData=false;api.shortCycle();assert.equal(api.shorts.records.length,0);
+ api.state.liveData=true;c.last_updated=new Date(Date.now()-3600000).toISOString();api.shortCycle();assert.equal(api.shorts.records.length,0);
+ c.last_updated=new Date().toISOString();api.perf.rec=[{id:c.id,open:true}];api.shortCycle();assert.equal(api.shorts.records.length,0);
+ api.perf.rec=[];api.shortCycle();assert.equal(api.shorts.records.length,1);
+ c.current_price=100;api.shortCycle();c.a.tp1=110;c.a.stop=90;api.perfOpen(c);assert.equal(api.perf.rec.length,0);
+});
+test('شورت: پیش‌فرض خاموش، CSV جهت‌دار و نمایش مودال',async()=>{
+ const initial=boot('riskoff');await settled(initial.api);assert.equal(initial.api.shorts.enabled,false);
+ const {api,c,getCsv,store}=await shortFixture();api.shortCycle();api.renderShorts();api.renderModalInfo(c);
+ assert.match(document_el('mshort').innerHTML,/شورت/);assert.match(document_el('shortPanel').innerHTML,/منتظر پولبک/);
+ api.exportShortCSV();assert.match(getCsv(),/"side","version"/);assert.match(getCsv(),/short-pullback-v1/);
+ assert.equal(JSON.parse(store.getItem('cb_short_v1')).records[0].side,'short');
+});
+
+
+test('بازبینی: ورود منتظر بر اساس سطوح ثابت، نه اهداف جابه‌جاشده',async()=>{
+ const {api,c}=await shortFixture();api.shortCycle();const r=api.shorts.records[0];
+ c.current_price=100;c.a.support=90;c.a.low7=90;api.shortCycle();
+ assert.equal(c.a.plans.short.valid,false);assert.equal(r.status,'active');assert.equal(r.tp1,95);assert.equal(r.stop,101.2525);
+});
+test('بازبینی: ثبت خرید قوی نیز با شورت تعارض دارد، حتی زیر امتیاز ۷۸',async()=>{
+ const {api,c}=await shortFixture();c.a.cat='sbuy';c.a.buyScore=70;c.a.tp1=110;c.a.stop=90;c.a.gate={state:'open'};
+ api.shortCycle();assert.equal(api.shorts.records.length,0);
+});
+test('بازبینی: خطای شبکه، کش و زمان منبع ناقص هر دو کارنامه را متوقف می‌کند',async()=>{
+ const {api,c,network}=await shortFixture();c.current_price=100;api.shortCycle();
+ api.perf.rec=[{id:c.id,open:true,p0:100,tp1:101,stop:99,t0:Date.now()-8*86400000}];
+ const before=JSON.stringify(api.shorts.records),longBefore=JSON.stringify(api.perf.rec);
+ network.fail=true;await api.loadAll();assert.equal(api.state.loading,false);assert.equal(api.state.liveData,false);
+ assert.equal(JSON.stringify(api.shorts.records),before);assert.equal(JSON.stringify(api.perf.rec),longBefore);
+ delete c.last_updated;assert.equal(api.shortCoinFresh(c),false);
+ c.last_updated='invalid';assert.equal(api.shortCoinFresh(c),false);
+});
+test('بازبینی: فیلتر فقط شورت اعلان مخفی لانگ تولید نمی‌کند',async()=>{
+ const {api,c,notices}=await shortFixture();api.mon.notif=true;api.mon.sound=false;api.mon.filter='short';
+ api.pushAlert(c,'buy','long','#fff',true);assert.equal(notices.length,0);
+ api.pushAlert(c,'short','short','#fff',true);assert.equal(notices.length,1);
+ api.mon.filter='buy';api.pushAlert(c,'short','short','#fff',true);assert.equal(notices.length,1);
+});
+test('بازبینی: زمان منبع مستقل از زمان واکشی و داده BTC کنترل می‌شود',async()=>{
+ const {api,c}=await shortFixture();api.state.regime.btcAvailable=false;api.shortCycle();assert.equal(api.shorts.records.length,0);
+ api.state.regime.btcAvailable=true;const before=api.shortFreshKey();c.last_updated=new Date(Date.now()-3600000).toISOString();
+ assert.notEqual(api.shortFreshKey(),before);api.tick();assert.equal(c.a.plans.short.state,'blocked');
+ assert.ok(c.a.plans.short.gate.reasons.some(r=>r.includes('تازه')));
+ c.last_updated=new Date().toISOString();api.state.coins.find(x=>x.id==='bitcoin').last_updated=new Date(Date.now()-3600000).toISOString();
+ api.updateShortPlans();assert.ok(c.a.plans.short.gate.reasons.some(r=>r.includes('بیت‌کوین')));
+});
+test('بازبینی: داده خراب حذف می‌شود و شکست ساخت Worker به مسیر اصلی برمی‌گردد',async()=>{
+ const {api,c,sandbox}=await shortFixture();
+ assert.equal(api.marketRows([null,{}, {...c,current_price:Infinity}]).length,0);
+ assert.equal(api.marketRows([{...c,sparkline_in_7d:{price:{}}}])[0].sparkline_in_7d.price.length,0);
+ sandbox.Worker=class {constructor(){throw new Error('Worker disabled');}};
+ assert.equal(await api.computeIndicatorsInWorker([c]),null);
+});
+test('بازبینی: برابری اندیکاتورها در Worker و مسیر اصلی با ورودی آلوده',async()=>{
+ const {api}=boot('riskon');await settled(api);
+ let posted;const w=vm.createContext({self:{postMessage:v=>posted=v}});
+ vm.runInContext(readFileSync(new URL('../indicator-worker.js',import.meta.url),'utf8'),w);
+ const c=market('riskon')[1];c.sparkline_in_7d.price.splice(20,0,null,NaN,-1,0,'100');
+ w.self.onmessage({data:{id:1,series:[c.sparkline_in_7d.price]}});
+ const main=api.analyze(c),worker=api.analyze(c,posted.result[0]);
+ for(const key of ['rsi','hist','sma20','sma50','buyScore','entry','stop'])assert.equal(main[key],worker[key],key);
+});
 
 /* ------------------------- اجرا ------------------------- */
 let pass=0, fail=0;

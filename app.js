@@ -203,17 +203,21 @@ let workerSeq=0;
 function computeIndicatorsInWorker(coins){
   if(typeof Worker==='undefined') return Promise.resolve(null);
   return new Promise(resolve=>{
-    const worker=new Worker('indicator-worker.js'), id=++workerSeq;
-    const timer=setTimeout(()=>{ worker.terminate(); resolve(null); },8000);
-    worker.onmessage=e=>{ if(e.data?.id!==id) return; clearTimeout(timer); worker.terminate(); resolve(e.data.result); };
-    worker.onerror=()=>{ clearTimeout(timer); worker.terminate(); resolve(null); };
-    worker.postMessage({id,series:coins.map(c=>c.sparkline_in_7d?.price||[])});
+    let worker, timer;
+    const done=value=>{clearTimeout(timer);worker?.terminate();resolve(value);};
+    try{
+      worker=new Worker('indicator-worker.js'); const id=++workerSeq;
+      timer=setTimeout(()=>done(null),8000);
+      worker.onmessage=e=>{if(e.data?.id===id)done(e.data.result);};
+      worker.onerror=()=>done(null);
+      worker.postMessage({id,series:coins.map(c=>c.sparkline_in_7d?.price||[])});
+    }catch(e){done(null);}
   });
 }
 
 function analyze(c,pre=null){
-  const p=(c.sparkline_in_7d?.price||[]).filter(x=>x!=null&&isFinite(x));
-  const a={ok:p.length>=60, prices:p, kind:assetKind(c)};
+  const p=(c.sparkline_in_7d?.price||[]).filter(x=>Number.isFinite(x)&&x>0);
+  const a={ok:p.length>=60&&p.every(x=>Number.isFinite(x)&&x>0), prices:p, kind:assetKind(c)};
   const ch1=c.price_change_percentage_1h_in_currency||0, ch24=c.price_change_percentage_24h_in_currency||0,
         ch7=c.price_change_percentage_7d_in_currency||0, ch30=c.price_change_percentage_30d_in_currency||0;
   a.ch1=ch1;a.ch24=ch24;a.ch7=ch7;a.ch30=ch30;
@@ -532,7 +536,7 @@ function applyMarketContext(){
   if(above>0.6) pts+=1; else if(above<0.3) pts-=1;
   const fng=state.fng?parseInt(state.fng.value):null;
   const k = pts>=3?'riskon' : pts<=-3?'riskoff' : 'neutral';
-  state.regime={...REGIMES[k], pts, why, breadth, above, fng, btc7:btc?btc.a.ch7:0, btc24:btc?btc.a.ch24:0};
+  state.regime={...REGIMES[k], btcAvailable:!!btc&&shortCoinFresh(btc), pts, why, breadth, above, fng, btc7:btc?btc.a.ch7:0, btc24:btc?btc.a.ch24:0};
 
   state.gate=evalMarketGate(state.regime);
 
@@ -562,8 +566,127 @@ function applyMarketContext(){
   state.gate.stats=gateStats();
 }
 
+/* Short research workspace: isolated storage keeps legacy long history intact. */
+const shorts={records:[], enabled:false, filter:'all'};
+try{
+  const saved=JSON.parse(localStorage.getItem('cb_short_v1')||'{}')||{};
+  shorts.enabled=saved.enabled===true;
+  shorts.records=ShortEngine.restoreRecords(saved.records);
+}catch(e){}
+function saveShorts(){try{localStorage.setItem('cb_short_v1',JSON.stringify({enabled:shorts.enabled,records:ShortEngine.keepRecords(shorts.records)}));}catch(e){}}
+function shortFresh(){const age=Date.now()-state.dataAt;return state.liveData===true&&Number.isFinite(age)&&age>=0&&age<CACHE_FRESH_MS;}
+function shortCoinFresh(c){const t=Date.parse(c.last_updated);return Number.isFinite(t)&&Date.now()-t<CACHE_FRESH_MS&&t<=Date.now()+60000;}
+function longCandidate(c){
+  const a=c.a;
+  return shortFresh()&&shortCoinFresh(c)&&a?.ok&&tradable(c)&&
+    (a.cat==='sbuy'||a.buyScore>=78)&&gatePermit(c,'open')&&
+    a.tp1>c.current_price*1.004&&a.stop<c.current_price*0.996;
+}
+function shortConflict(c){return perf.rec.some(r=>r.id===c.id&&r.open)||longCandidate(c);}
+function shortBenchmarkFresh(){const btc=state.coins.find(c=>c.id==='bitcoin');return !!btc&&btc.a?.ok&&shortCoinFresh(btc)&&state.regime?.btcAvailable===true;}
+function shortOptions(c,levels){return {fresh:shortFresh()&&shortCoinFresh(c),mode:gate.mode,conflict:shortConflict(c),benchmarkFresh:shortBenchmarkFresh(),levels};}
+function updateShortPlans(){
+  state.coins.forEach(c=>{
+    c.a.plans={long:{side:'long',entry:c.a.entry,stop:c.a.stop,tp1:c.a.tp1,tp2:c.a.tp2,score:c.a.buyScore,gate:c.a.gate},
+      short:ShortEngine.plan(c,state.regime,shortOptions(c))};
+  });
+}
+function shortAlert(c,text){
+  // Direction is explicit; alerts use existing sound/notification preferences.
+  pushAlert(c,'short',`شورت آزمایشی — ${text}`,'#fb7185',true);
+  try{localStorage.setItem(LS_KEYS.alerts,JSON.stringify(mon.alerts.slice(0,60)));}catch(e){}
+  renderAlerts();
+}
+function shortCycle(){
+  updateShortPlans();
+  if(!shortFresh()){renderShorts();return;}
+  const now=Date.now();
+  shorts.records.forEach(r=>{
+    const c=state.coins.find(c=>c.id===r.id);if(!c||!shortCoinFresh(c))return;
+    const px=c.current_price, p=r.status==='waiting'?ShortEngine.plan(c,state.regime,shortOptions(c,r)):c.a.plans.short;
+    const event=ShortEngine.advance(r,px,now);
+    if(event) shortAlert(c,event==='cancelled'?'ستاپ منتظر منقضی/باطل شد':`${event==='win'?'هدف اول':event==='loss'?'حد ضرر':'سررسید'} • بازده ناخالص ${pct(r.ret)}`);
+    if(r.status==='waiting'){
+      if(!shorts.enabled||p.state==='blocked'||shortConflict(c)){
+        r.status='cancelled';r.closed=now;shortAlert(c,'ستاپ منتظر به دلیل تغییر شرایط باطل شد');
+      }else if(px>=r.entryLo&&px<=r.entryHi&&px<r.stop&&px>r.tp1&&(px-r.tp1)/(r.stop-px)>=p.gate.need.rr){
+        Object.assign(r,{status:'active',fill:px,opened:now,last:px,peak:px,trough:px});
+        shortAlert(c,`ورود مشاهده‌شده ${fmtP(px)} • حد ضرر ${fmtP(r.stop)} • هدف ${fmtP(r.tp1)}`);
+      }
+    }
+  });
+  if(shorts.enabled) state.coins.forEach(c=>{
+    const p=c.a.plans.short;
+    if(!p.valid||p.state==='blocked'||shortConflict(c))return;
+    // One live setup per asset, and a 24h cooldown after closing/cancelling.
+    if(shorts.records.some(r=>r.id===c.id&&(['active','waiting'].includes(r.status)||now-(r.closed||r.created)<86400000)))return;
+    const r={...p,gate:undefined,id:c.id,sym:c.symbol,created:now,status:p.state==='ready'?'active':'waiting'};
+    if(r.status==='active')Object.assign(r,{fill:c.current_price,opened:now,last:c.current_price,peak:c.current_price,trough:c.current_price});
+    shorts.records.push(r);
+    shortAlert(c,r.status==='active'?`ورود مشاهده‌شده ${fmtP(r.fill)} • حد ضرر ${fmtP(r.stop)}`:`انتظار پولبک به ${fmtP(p.entry)} — هنوز معامله فعال نیست`);
+  });
+  // Never evict live trades to make room for closed history.
+  shorts.records=ShortEngine.keepRecords(shorts.records);
+  saveShorts();renderShorts();
+}
+const SHORT_STATUS={blocked:'بدون ورود',waiting:'منتظر پولبک',ready:'آماده ورود',active:'فعال آزمایشی',win:'هدف اول',loss:'حد ضرر',expired:'سررسید',cancelled:'باطل‌شده'};
+function shortDetails(c){
+  const p=c.a.plans?.short;
+  if(!p)return '<p>پس از دریافت داده محاسبه می‌شود.</p>';
+  const shown=p.state==='ready'?{...p,entry:c.current_price}:p;
+  const pos=ShortEngine.position(shown,riskCfg());
+  return `<b>🔻 شورت • ${esc(SHORT_STATUS[p.state])} • امتیاز ${p.score}/100</b>
+    <p>${p.gate.reasons.map(esc).join(' • ')}</p>
+    ${p.valid?`<p>محدوده ورود: ${fmtP(p.entryLo)} تا ${fmtP(p.entryHi)} • مبنا: ${fmtP(p.entry)} | حد ضرر: ${fmtP(p.stop)} | اهداف: ${fmtP(p.tp1)} / ${fmtP(p.tp2)}</p>
+    <p>R/R ورود: ${p.rr.toFixed(2)} | فعلی: ${p.rrNow.toFixed(2)}</p>
+    ${pos?`<p>حجم بر مبنای ${p.state==='ready'?'قیمت فعلی':'ورود پیشنهادی'} و تنظیمات سرمایه: ${fmtN(pos.units,4)} واحد • ارزش اسمی: ${fmtP(pos.notional)} • زیان حد ضرر: ${fmtP(pos.loss)} • سود هدف اول: ${fmtP(pos.gain)}</p>`:''}`:''}`;
+}
+function shortFreshKey(){return [shortFresh(),...state.coins.map(c=>shortCoinFresh(c))].join('|');}
+function renderShorts(){
+  state.shortFreshDisplayed=shortFreshKey();
+  const box=$('#shortPanel');if(!box)return;
+  const plans=state.coins.filter(c=>tradable(c)&&c.a.plans?.short).sort((x,y)=>{
+    const rank={ready:0,waiting:1,blocked:2};return rank[x.a.plans.short.state]-rank[y.a.plans.short.state]||y.a.plans.short.score-x.a.plans.short.score;
+  }).filter(c=>shorts.filter!=='approved'||c.a.plans.short.state!=='blocked').slice(0,25);
+  $('#shortEnabled').checked=shorts.enabled;
+  $('#shortFresh').textContent=shortFresh()?'داده تازه؛ نتایج تحلیلی، بدون اجرای سفارش':'آفلاین / داده کهنه؛ ورود و ارزیابی کارنامه متوقف است';
+  box.innerHTML=plans.length?plans.map(c=>`<article class="short-card"><h3>${esc(c.name)} <small>${esc(c.symbol.toUpperCase())}</small></h3>${shortDetails(c)}<button data-short-open="${esc(c.id)}">نمودار و جزئیات</button></article>`).join(''):'<p>فرصتی مطابق این فیلتر وجود ندارد؛ عدم معامله یک خروجی معتبر است.</p>';
+  const done=shorts.records.filter(r=>['win','loss','expired'].includes(r.status));
+  const avg=done.length?done.reduce((s,r)=>s+r.ret,0)/done.length:0;
+  $('#shortStats').textContent=`کارنامه مستقل شورت • ${done.length} بسته • میانگین ناخالص ${pct(avg)} • ${shorts.records.filter(r=>r.status==='active').length} فعال • ${shorts.records.filter(r=>r.status==='waiting').length} منتظر`;
+  $('#shortHistory').innerHTML=[...shorts.records].sort((a,b)=>(b.closed||b.opened||b.created)-(a.closed||a.opened||a.created)).slice(0,30).map(r=>`<tr><td>${esc(r.sym.toUpperCase())} • شورت</td><td>${esc(SHORT_STATUS[r.status])}</td><td>${fmtP(r.fill||r.entry)}</td><td>${fmtP(r.stop)}</td><td>${fmtP(r.tp1)}</td><td>${r.ret==null?'—':pct(r.ret)}</td></tr>`).join('');
+}
+function exportShortCSV(){
+  updateShortPlans();
+  const rows=[['side','version','symbol','state','score','entry','stop','tp1','tp2','rr','rrNow','reasons']];
+  state.coins.filter(tradable).forEach(c=>{const p=c.a.plans?.short;if(p)rows.push(['short',p.version,c.symbol,p.state,p.score,p.entry,p.stop,p.tp1,p.tp2,p.rr,p.rrNow,p.gate.reasons.join(' | ')]);});
+  // Neutralize spreadsheet formula injection in untrusted asset names/symbols.
+  const cell=v=>'"'+String(v??'').replace(/^[=+@-]/,"'$&").replace(/"/g,'""')+'"';
+  const blob=new Blob(['\uFEFF'+rows.map(r=>r.map(cell).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8;'});
+  const url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download='cryptobin_short_plans.csv';document.body.appendChild(link);link.click();document.body.removeChild(link);setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+function initShortUI(){
+  $('#shortEnabled').onchange=e=>{shorts.enabled=e.target.checked;saveShorts();shortCycle();};
+  $('#shortFilter').onchange=e=>{shorts.filter=e.target.value;renderShorts();};
+  $('#shortCSV').onclick=exportShortCSV;
+  $('#shortPanel').onclick=e=>{const b=e.target.closest('[data-short-open]');if(b)openModal(b.dataset.shortOpen);};
+}
+
 /* ------------------------- Data fetching ------------------------- */
-async function getJSON(url){ const r=await fetch(url); if(!r.ok){ const e=new Error(r.status); e.status=r.status; throw e; } return r.json(); }
+async function getJSON(url){
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),15000);
+  try{
+    const r=await fetch(url,{signal:controller.signal});
+    if(!r.ok){const e=new Error(r.status);e.status=r.status;throw e;}
+    return await r.json();
+  }finally{clearTimeout(timer);}
+}
+function marketRows(data){
+  if(!Array.isArray(data))return [];
+  return data.filter(c=>c&&typeof c.id==='string'&&typeof c.name==='string'&&typeof c.symbol==='string'&&Number.isFinite(c.current_price)&&c.current_price>0)
+    .map(c=>({...c,sparkline_in_7d:{price:Array.isArray(c.sparkline_in_7d?.price)?c.sparkline_in_7d.price:[]}}));
+}
 async function loadAll(manual=false){
   if(state.loading) return;
   state.loading=true;
@@ -577,13 +700,15 @@ async function loadAll(manual=false){
       getJSON('https://api.alternative.me/fng/?limit=1')
     ]);
     if(coinsResult.status==='rejected') throw coinsResult.reason;
-    const coins=coinsResult.value;
+    const coins=marketRows(coinsResult.value);
     if(!Array.isArray(coins) || !coins.length) throw new Error('پاسخ خالی یا نامعتبر CoinGecko');
     if(globalResult.status==='fulfilled' && globalResult.value?.data) state.global=globalResult.value.data;
     if(fngResult.status==='fulfilled' && fngResult.value?.data?.[0]) state.fng=fngResult.value.data[0];
     else state.fng=null;
+    const receivedAt=Date.now();
     const indicators=await computeIndicatorsInWorker(coins);
     state.coins=coins.map((c,i)=>({...c,a:analyze(c,indicators?.[i])}));
+    state.liveData=true; state.dataAt=receivedAt;
     applyMarketContext();
     try{ localStorage.setItem(LS_KEYS.cache, JSON.stringify({v:CACHE_VERSION,t:Date.now(),coins})); }catch(e){ try{ localStorage.removeItem(LS_KEYS.cache); }catch(_){} }
     $('#dot').classList.remove('err'); $('#statusTxt').textContent=`متصل • ${coins.length} ارز • ${faTime(Date.now())}`;
@@ -591,13 +716,15 @@ async function loadAll(manual=false){
     mon.backoff=1;
     if(manual) toast('✅ داده‌ها با موفقیت بروزرسانی شد');
   }catch(e){
+    state.liveData=false;
     $('#dot').classList.add('err');
     if(e&&e.status===429){ mon.backoff=Math.min((mon.backoff||1)*2,8); mon.left=mon.iv*mon.backoff; toast('⏳ محدودیت نرخ CoinGecko؛ بررسی بعدی با تأخیر انجام می‌شود',5000); } else { mon.backoff=1; }
     let cache=null; try{ cache=JSON.parse(localStorage.getItem(LS_KEYS.cache)||'null'); }catch(_){ cache=null; }
     const age=cache?.t ? Date.now()-cache.t : Infinity;
-    const cacheValid=cache?.v===CACHE_VERSION && Array.isArray(cache.coins) && cache.coins.length && age<=CACHE_MAX_AGE_MS;
+    const cachedCoins=marketRows(cache?.coins);
+    const cacheValid=cache?.v===CACHE_VERSION && cachedCoins.length && age>=0 && age<=CACHE_MAX_AGE_MS;
     if(cacheValid){
-      state.coins=cache.coins.map(c=>({...c,a:analyze(c)})); applyMarketContext();
+      state.coins=cachedCoins.map(c=>({...c,a:analyze(c)})); applyMarketContext();
       const fresh=age<=CACHE_FRESH_MS;
       $('#statusTxt').textContent=`آفلاین — داده ${fresh?'تازه':'قدیمی'} (${faTime(cache.t)})`;
       toast(`⚠️ اتصال برقرار نشد؛ داده‌ی کش‌شده‌ی ${Math.round(age/60000)} دقیقه قبل نمایش داده می‌شود`);
@@ -613,7 +740,16 @@ async function loadAll(manual=false){
 }
 
 /* ------------------------- Rendering ------------------------- */
-function renderAll(){ renderOverview(); renderPulse(); renderCmp(); renderBest(); renderChips(); renderList(); }
+function refreshModal(){
+  if(!state.modalCoin||!$('#modal').classList.contains('open'))return;
+  const current=state.coins.find(c=>c.id===state.modalCoin.id);
+  if(!current){closeModal();return;}
+  state.modalCoin=current;
+  // Do not replace focused calculator fields on a periodic refresh.
+  $('#mshort').innerHTML=shortDetails(current);
+  if(mainMeta)drawMain(mainMeta.prices,mainMeta.times);
+}
+function renderAll(){ updateShortPlans(); renderShorts(); renderOverview(); renderPulse(); renderCmp(); renderBest(); renderChips(); renderList(); refreshModal(); }
 
 function renderOverview(){
   const g=state.global; const cs=state.coins.filter(c=>c.a.ok && tradable(c));
@@ -845,6 +981,7 @@ function closeModal(){
 }
 
 function renderModalInfo(c){
+  $('#mshort').innerHTML=shortDetails(c);
   const a=c.a,C=CATS[a.cat];
   $('#mhead').innerHTML=`<img src="${safeImg(c.image)}" alt="" loading="lazy"><div><h2>${esc(c.name)} <small style="color:var(--muted);font-size:.9rem">${esc(c.symbol.toUpperCase())} • رتبه #${esc(c.market_cap_rank)}</small></h2><span class="cat" style="--catc:${C.c}">${C.icon} ${C.label} — امتیاز تکنیکال ${a.score}/100 • امتیاز خرید ${a.buyScore} (${esc(a.grade)})</span>${a.kind!=='asset'?`<div style="font-size:.72rem;color:var(--pot);margin-top:4px">⚠️ ${KIND_LABEL[a.kind]} — از رتبه‌بندی «بهترین خرید» و کارنامه سیگنال‌ها مستثناست</div>`:''}</div><div class="mp">${fmtP(c.current_price)}<div style="font-size:.85rem" class="${cls(a.ch24)}">${pct(a.ch24)} (۲۴h) • RS/BTC ${pct(a.rs7,1)}</div></div>`;
   $('#mkv').innerHTML=[['RSI (14)',a.rsi?.toFixed(1)],['MACD',a.macd?.toPrecision(3)],['Signal',a.sig?.toPrecision(3)],['Histogram',a.hist?.toPrecision(3)],['SMA 20',fmtP(a.sma20)],['SMA 50',fmtP(a.sma50)],['EMA 20',fmtP(a.ema20)],['باند بالا',fmtP(a.bbUp)],['باند پایین',fmtP(a.bbLo)],['موقعیت در باند',(a.bbPos*100).toFixed(0)+'%'],['پهنای باند',a.bbWidth?.toFixed(1)+'%'],['نوسان روزانه',a.dvol?.toFixed(2)+'%'],['شیب ۴۸h',(a.slopeH*24).toFixed(2)+'%/روز'],['کراس MA',a.cross==='golden'?'طلایی 🌟':a.cross==='death'?'مرگ ☠️':'—'],['کراس MACD',a.macdCross==='bull'?'صعودی':a.macdCross==='bear'?'نزولی':'—'],['قدرت نسبی ۷d',pct(a.rs7,1)],['بتا به BTC',a.beta!=null?a.beta.toFixed(2)+'×':'—']].map(([k,v])=>`<div>${esc(k)}<b>${v??'—'}</b></div>`).join('');
@@ -900,9 +1037,11 @@ function drawMain(prices,times){
   const a=state.modalCoin.a; const n=prices.length;
   const sma20=SMA(prices,20), sma50=SMA(prices,50), bb=BB(prices,20,2);
   const showPred=$('#ovPred').checked; const fut=showPred?Math.round(n*0.18):0;
+  const sp=$('#ovShort').checked&&state.tf===7&&a.plans?.short?.valid?a.plans.short:null;
   const lastP=prices[n-1];
   let all=[...prices]; if($('#ovBB').checked) all=all.concat(bb.up.filter(v=>v!=null),bb.lo.filter(v=>v!=null));
   if(showPred) all.push(lastP*(1+a.predHi/100),lastP*(1+a.predLo/100));
+  if(sp) all.push(sp.entry,sp.stop,sp.tp1,sp.tp2);
   let mn=Math.min(...all), mx=Math.max(...all); const pd=(mx-mn)*0.05; mn-=pd; mx+=pd;
   const X=i=>pad.l+(W-pad.l-pad.r)*i/(n-1+fut), Y=v=>pad.t+(H-pad.t-pad.b)*(1-(v-mn)/(mx-mn));
   drawGrid(ctx,W,H,pad,mn,mx,v=>fmtP(v).replace('$',''));
@@ -927,6 +1066,11 @@ function drawMain(prices,times){
     ctx.fillStyle='#00d4ff'; ctx.textAlign='left'; ctx.fillText('پیش‌بینی ۷ روزه ⟶',x0+6,pad.t+10);
     ctx.fillStyle='rgba(255,255,255,.04)'; ctx.fillRect(x0,pad.t,x1-x0,H-pad.t-pad.b); }
   ctx.font='10px Vazirmatn'; ctx.textAlign='left'; let lx=pad.l+4, ly=H-pad.b-8; const leg=[[col,'قیمت'],['#fbbf24','SMA20'],['#00d4ff','SMA50'],['rgba(124,92,255,.8)','بولینگر']]; leg.forEach(([c,t])=>{ ctx.fillStyle=c; ctx.fillRect(lx,ly-6,10,3); ctx.fillStyle='#8a94ad'; ctx.fillText(t,lx+13,ly); lx+=ctx.measureText(t).width+28; });
+  if(sp){
+    [[sp.entry,'ورود شورت','#fbbf24'],[sp.stop,'حد ضرر شورت','#fb7185'],[sp.tp1,'هدف ۱ شورت','#00d4ff'],[sp.tp2,'هدف ۲ شورت','#a78bfa']].forEach(([v,label,color])=>{
+      ctx.strokeStyle=color;ctx.setLineDash([3,4]);ctx.beginPath();ctx.moveTo(pad.l,Y(v));ctx.lineTo(W-pad.r,Y(v));ctx.stroke();ctx.setLineDash([]);ctx.fillStyle=color;ctx.textAlign='right';ctx.fillText(label,W-pad.r-6,Y(v)-4);
+    });
+  }
   mainMeta={prices,times,X,Y,n,sma20,sma50,sup,res};
 }
 function drawRSI(prices){
@@ -1069,20 +1213,22 @@ function pushAlert(c,kind,text,color,important){
   const a={id:c.id,sym:c.symbol.toUpperCase(),name:c.name,img:c.image,kind,text,color,t:Date.now()};
   mon.alerts.unshift(a);
   if(mon.alerts.length>120) mon.alerts.length=120;
-  if(important){ beep(); notify(`${a.sym} — ${text}`, `قیمت ${fmtP(c.current_price)} • بهترین خرید ${fmtP(c.a.entry)} • ${c.a.gate?GATE_STATES[c.a.gate.state].label:''}`); }
+  if(important&&alertVisible(a)){ beep(); notify(`${a.sym} — ${text}`, kind==='short'?`شورت آزمایشی • قیمت ${fmtP(c.current_price)} • بدون اجرای سفارش`:`قیمت ${fmtP(c.current_price)} • بهترین خرید ${fmtP(c.a.entry)} • ${c.a.gate?GATE_STATES[c.a.gate.state].label:''}`); }
 }
 
 function detectEvents(){
+  if(!shortFresh())return;
   const isFirst = Object.keys(mon.prev).length===0;
   let fresh=0;
   const gOff   = gate.mode==='off';
   const gMacro = state.gate ? state.gate.macro : null;
   state.coins.forEach(c=>{
+    if(!shortCoinFresh(c))return;
     const a=c.a, pv=mon.prev[c.id];
     if(pv && a.ok){
       const watched=state.watch.includes(c.id);
       const pass = k => mon.filter==='all' || (mon.filter==='watch'? watched : (k==='buy'||k==='sig'));
-      const allowed = gatePermit(c,'any');
+      const allowed = gatePermit(c,'any')&&!shorts.records.some(r=>r.id===c.id&&r.status==='active');
       const halfOpen = !gOff && gMacro==='closed';
 
       if(pv.buyState!=='now' && a.buyState==='now' && pass('buy')){
@@ -1136,7 +1282,7 @@ function detectEvents(){
   }
   if(state.gate) mon.prevGate=state.gate.state;
   if(isFirst){
-    const top=bestList(3);
+    const top=bestList(25).filter(c=>shortCoinFresh(c)&&gatePermit(c,'open')&&!shorts.records.some(r=>r.id===c.id&&r.status==='active')).slice(0,3);
     top.forEach(c=>pushAlert(c,'buy',`شروع پایش — بهترین قیمت خرید ${fmtP(c.a.entry)} (امتیاز ${c.a.buyScore} • ${c.a.buyStateTxt})`, '#7c5cff', false));
   }
   try{ localStorage.setItem(LS_KEYS.alerts, JSON.stringify(mon.alerts.slice(0,60))); }catch(e){}
@@ -1147,19 +1293,21 @@ function detectEvents(){
 function alertVisible(a){
   if(mon.filter==='all') return true;
   if(mon.filter==='watch') return state.watch.includes(a.id);
+  if(mon.filter==='short') return a.kind==='short';
   return a.kind==='buy' || a.kind==='sig';
 }
 
 function renderAlerts(){
   const box=$('#alerts');
   const list=mon.alerts.filter(alertVisible);
-  if(!list.length){ box.innerHTML=`<div class="empty" style="padding:24px;font-size:.8rem">رویدادی مطابق فیلتر «${mon.filter==='all'?'همه':'فقط فرصت‌های خرید'}» ثبت نشده است.<br>فیلتر را تغییر دهید یا منتظر چرخه بعدی باشید.</div>`; $('#alCount').textContent=''; return; }
-  $('#alCount').textContent=`(${list.length} رویداد — فیلتر: ${mon.filter==='all'?'همه':'خرید/سیگنال'})`;
+  if(!list.length){ box.innerHTML=`<div class="empty" style="padding:24px;font-size:.8rem">رویدادی مطابق فیلتر «${mon.filter==='all'?'همه':mon.filter==='short'?'شورت':'فقط فرصت‌های خرید'}» ثبت نشده است.<br>فیلتر را تغییر دهید یا منتظر چرخه بعدی باشید.</div>`; $('#alCount').textContent=''; return; }
+  $('#alCount').textContent=`(${list.length} رویداد — فیلتر: ${mon.filter==='all'?'همه':mon.filter==='short'?'شورت':'خرید/سیگنال'})`;
   box.innerHTML=list.slice(0,60).map(a=>`<div class="al" style="--alc:${a.color}" data-action="open" data-id="${esc(a.id)}" role="button" tabindex="0" aria-label="${esc(a.sym)} ${esc(a.text)}">
     <img src="${safeImg(a.img)}" alt="" loading="lazy"><div class="t"><b>${esc(a.sym)}</b> — ${esc(a.text)}</div><span class="tm">${faTime(a.t)}</span></div>`).join('');
 }
 
 function tick(){
+  if(state.shortFreshDisplayed!==shortFreshKey()){updateShortPlans();renderShorts();refreshModal();}
   if(!mon.on) return;
   mon.left--;
   $('#cd').textContent=mon.left>0? mon.left+'s' : '…';
@@ -1168,6 +1316,7 @@ function tick(){
 
 function afterCycle(){
   mon.cycles++;
+  shortCycle();
   try{ perfCycle(); }catch(e){ console.warn('perf',e); }
   $('#cycles').textContent=mon.cycles.toLocaleString('fa-IR');
   $('#lastChk').textContent=faTime(Date.now());
@@ -1199,14 +1348,16 @@ $('#clearAl').onclick=()=>{ mon.alerts=[]; localStorage.removeItem(LS_KEYS.alert
    ===================================================================== */
 const PERF_KEY=LS_KEYS.perf;
 const HORIZON_MS=7*24*3600*1000;
-const perf = { rec: (()=>{ try{ return JSON.parse(localStorage.getItem(PERF_KEY)||'[]'); }catch(e){ return []; } })() };
+const perf = { rec: (()=>{ try{ return JSON.parse(localStorage.getItem(PERF_KEY)||'[]').map(r=>({...r,side:'long',version:r.version||'legacy-long-v1'})); }catch(e){ return []; } })() };
 function perfSave(){ try{ localStorage.setItem(PERF_KEY, JSON.stringify(perf.rec.slice(-300))); }catch(e){} }
 
 function perfOpen(c){
+  if(!shortFresh()||!shortCoinFresh(c))return;
+  if(shorts.records.some(r=>r.id===c.id && r.status==='active')) return;
   const a=c.a;
   if(perf.rec.some(r=>r.id===c.id && r.open)) return;
   if(!(a.tp1>c.current_price*1.004 && a.stop<c.current_price*0.996)) return;
-  perf.rec.push({ id:c.id, sym:c.symbol.toUpperCase(), name:c.name, img:c.image,
+  perf.rec.push({ side:'long', version:'legacy-long-v1', id:c.id, sym:c.symbol.toUpperCase(), name:c.name, img:c.image,
     t0:Date.now(), p0:c.current_price, entry:a.entry, tp1:a.tp1, stop:a.stop,
     score:a.score, buyScore:a.buyScore, grade:a.grade, cat:a.cat, pred:a.pred,
     open:true, peak:c.current_price, trough:c.current_price, last:c.current_price });
@@ -1217,7 +1368,7 @@ function perfEvaluate(){
   perf.rec.forEach(r=>{
     if(!r.open) return;
     const c=state.coins.find(x=>x.id===r.id);
-    if(!c || !isFinite(c.current_price)) return;
+    if(!c || !shortFresh() || !shortCoinFresh(c) || !Number.isFinite(c.current_price) || c.current_price<=0) return;
     const px=c.current_price;
     r.peak=Math.max(r.peak??px, px); r.trough=Math.min(r.trough??px, px); r.last=px;
     if(px>=r.tp1){ r.open=false; r.result='win';  r.why='برخورد به هدف اول 🎯'; }
@@ -1297,8 +1448,9 @@ function renderPerf(){
 }
 
 function perfCycle(){
+  if(!shortFresh()){renderPerf();return;}
   perfEvaluate();
-  state.coins.forEach(c=>{ if(c.a.ok && tradable(c) && (c.a.cat==='sbuy' || c.a.buyScore>=78) && gatePermit(c,'open')) perfOpen(c); });
+  state.coins.forEach(c=>{ if(longCandidate(c)) perfOpen(c); });
   perfSave(); renderPerf();
 }
 
@@ -1408,7 +1560,7 @@ function renderCalc(c){
     ${cfg.pct>5?'<div class="warn">⚠️ ریسک بیش از ۵٪ در هر معامله بالاست؛ مدیریت سرمایه معمولاً ۱ تا ۲٪ را توصیه می‌کند تا در رشته باخت‌ها سرمایه حفظ شود.</div>':''}
     <div class="mini" style="margin-top:8px">فرمول: مقدار = (سرمایه × درصد ریسک) ÷ (ورود − حد ضرر) • ارزش = مقدار × ورود</div>`;
   const upd=()=>{ const cap=Math.max(1, parseFloat($('#capIn').value)||0), pctVal=clamp(parseFloat($('#pctIn').value)||0,0.1,100);
-    riskSave({cap,pct:pctVal}); renderCalc(c); };
+    riskSave({cap,pct:pctVal}); const current=state.coins.find(x=>x.id===c.id)||c; renderCalc(current); renderShorts(); $('#mshort').innerHTML=shortDetails(current); };
   $('#capIn').onchange=upd; $('#pctIn').onchange=upd;
 }
 
@@ -1468,7 +1620,7 @@ document.addEventListener('keydown',e=>{
   }
 });
 document.querySelectorAll('.tf').forEach(b=>b.onclick=()=>{ state.tf=+b.dataset.d; document.querySelectorAll('.tf').forEach(x=>{ const on=x===b; x.classList.toggle('active',on); x.setAttribute('aria-pressed', on?'true':'false'); }); loadAndDrawChart(); });
-['ovSma20','ovSma50','ovBB','ovPred'].forEach(id=>{ const el=$('#'+id); if(el) el.onchange=()=>loadAndDrawChart(); });
+['ovSma20','ovSma50','ovBB','ovPred','ovShort'].forEach(id=>{ const el=$('#'+id); if(el) el.onchange=()=>loadAndDrawChart(); });
 let rz; window.addEventListener('resize',()=>{ clearTimeout(rz); rz=setTimeout(()=>{ renderList(); if($('#modal').classList.contains('open')) loadAndDrawChart(); },200); });
 
 /* ------------------------- Boot ------------------------- */
@@ -1482,12 +1634,15 @@ function initMonUI(){
   $('#cd').textContent= mon.on? mon.left+'s' : 'خاموش';
 }
 if('serviceWorker' in navigator && location.protocol!=='file:'){
+  let controlled=!!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener('controllerchange',()=>{if(controlled)location.reload();else controlled=true;});
   window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}));
 }
 renderAlerts();
 renderPerf();
 syncGateUI();
 initMonUI();
+initShortUI();
 setMon(mon.on);
 loadAll();
 setInterval(tick, 1000);
