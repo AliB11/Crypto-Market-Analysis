@@ -122,6 +122,21 @@
   </section>
 
   <!-- Track record / backtest -->
+  <section id="shortSec">
+    <div class="sec-title"><span class="bar"></span>🔻 فرصت‌های شورت — آزمایشی</div>
+    <p class="short-warning">استراتژی ادامه نزول پس از پولبک • بدون سفارش، اهرم و تضمین امکان شورت در صرافی. هزینه، فاندینگ و لیکوییدیشن محاسبه نمی‌شوند. بخش‌های «بهترین خرید» و کارنامه اصلی همچنان مخصوص لانگ هستند.</p>
+    <div class="short-controls">
+      <label><input type="checkbox" id="shortEnabled"> ثبت و هشدار آزمایشی شورت (اختیاری)</label>
+      <label>فرصت‌ها <select id="shortFilter" class="sel"><option value="all">همه، همراه دلیل رد</option><option value="approved">آماده / منتظر پولبک</option></select></label>
+      <button id="shortCSV">خروجی CSV شورت</button>
+    </div>
+    <p id="shortFresh" role="status"></p>
+    <div id="shortPanel" class="short-grid"></div>
+    <h3 id="shortStats">کارنامه مستقل شورت</h3>
+    <p class="short-warning">کارنامه بر پایه قیمت‌های مشاهده‌شده هنگام پایش مرورگر است، نه بک‌تست یا اجرای واقعی. عبور بین دو بروزرسانی ممکن است دیده نشود. سطوح پس از ثبت ثابت می‌مانند؛ توقف ثبت جدید، معاملات فعال را حذف نمی‌کند.</p>
+    <div class="short-table"><table><thead><tr><th>دارایی / جهت</th><th>وضعیت</th><th>ورود</th><th>حد ضرر</th><th>هدف اول</th><th>بازده ناخالص</th></tr></thead><tbody id="shortHistory"></tbody></table></div>
+  </section>
+
   <section id="perfSec">
     <div class="sec-title"><span class="bar"></span>📊 کارنامه عملکرد سیگنال‌ها
       <span class="hint">هر سیگنال «خرید قوی» یا امتیاز خرید ≥۷۸ که از دروازه عبور کند ثبت و پس از ۷ روز یا برخورد به هدف/حد ضرر نتیجه‌اش سنجیده می‌شود — بدون بک‌اند، در همین مرورگر</span>
@@ -177,7 +192,7 @@
             <option value="all">همه رویدادها</option>
             <option value="buy" selected>فقط فرصت‌های خرید و سیگنال‌ها</option>
             <option value="watch">فقط علاقه‌مندی‌ها</option>
-          </select>
+          <option value="short">فقط شورت</option></select>
         </div>
         <div class="swrow"><span>دروازه‌ی رژیم</span>
           <select class="sel" id="gateMode" title="دروازه‌ی رژیم تعیین می‌کند در شرایط فعلی بازار ورود تازه مجاز است یا نه" aria-label="حالت دروازه رژیم">
@@ -234,6 +249,7 @@
       <label><input type="checkbox" id="ovSma20" checked> SMA20</label>
       <label><input type="checkbox" id="ovSma50" checked> SMA50</label>
       <label><input type="checkbox" id="ovBB" checked> بولینگر</label>
+      <label><input type="checkbox" id="ovShort"> سطوح تحلیلی شورت (۷ روزه)</label>
       <label><input type="checkbox" id="ovPred" checked> پیش‌بینی</label>
     </div>
     <div class="chart-box"><canvas id="mainChart" height="320" aria-label="نمودار قیمت"></canvas><div class="tip" id="tip" role="tooltip"></div></div>
@@ -250,6 +266,7 @@
         <div class="predbox" id="mpred"></div>
         <div class="calc" id="mcalc"></div>
         <div class="predbox" id="mbuy" style="margin-top:10px;background:linear-gradient(135deg,rgba(0,230,118,.16),rgba(0,212,255,.06));border-color:rgba(0,230,118,.35)"></div>
+        <div class="short-card" id="mshort"></div>
         <div class="sr" id="msr"></div>
         <h3 style="font-size:.9rem;margin:14px 0 8px">📊 داده‌های بازار</h3>
         <div class="kv" id="mmkt"></div>
@@ -266,6 +283,7 @@
   <span style="font-size:.7rem;opacity:.7">نسخه بهبودیافته — هماهنگی پیام‌ها، گرافیک و منطق تحلیلی بازبینی شد • دروازه‌ی رژیم، قدرت نسبی و بهترین قیمت خرید یکپارچه هستند</span>
 </footer>
 
+<script src="short-engine.js" defer></script>
 <script src="app.js" defer></script>
 </body>
 </html>

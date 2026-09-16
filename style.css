@@ -408,3 +408,12 @@
     html{scroll-behavior:auto}
     *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
   }
+
+/* Independent short research workspace */
+.short-warning { color:var(--muted); line-height:1.9; font-size:.8rem; margin:12px 0; }
+.short-controls { display:flex; flex-wrap:wrap; gap:16px; align-items:center; }
+.short-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,310px),1fr)); gap:12px; max-height:650px; overflow:auto; margin:16px 0; }
+.short-card { border:1px solid #fb718544; border-radius:14px; padding:16px; background:linear-gradient(135deg,#fb71850b,transparent); font-size:.8rem; line-height:1.9; }
+.short-card h3 { margin:0 0 8px; }.short-card p { margin:8px 0; }
+.short-table { overflow:auto; }.short-table table { width:100%; white-space:nowrap; }
+#shortFresh { color:var(--muted); font-size:.8rem; }

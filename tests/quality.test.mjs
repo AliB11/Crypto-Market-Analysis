@@ -16,7 +16,7 @@ assert.match(app,/CACHE_MAX_AGE_MS=6\*60\*60\*1000/);
 assert.match(app,/cache\?\.v===CACHE_VERSION/);
 assert.match(app,/new Worker\('indicator-worker\.js'\)/);
 assert.match(css,/prefers-reduced-motion/);
-assert.match(sw,/cryptobin-shell-v2/);
+assert.match(sw,/cryptobin-shell-v4/);
 
 const workerCode=readFileSync(new URL('../indicator-worker.js',import.meta.url),'utf8');
 let posted;
