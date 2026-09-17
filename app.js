@@ -208,8 +208,13 @@ const last=a=>{ for(let i=a.length-1;i>=0;i--) if(a[i]!=null) return a[i]; retur
 const prev=a=>{ let c=0; for(let i=a.length-1;i>=0;i--) if(a[i]!=null){ if(c===1) return a[i]; c++; } return null; };
 
 /* ارزهایی که در این چرخه ارزش هزینه‌ی فراخوان را دارند: واچ‌لیست ← مجاز ←
-   انتخابی ← بالاترین امتیاز خرید. اولویت کمتر = مهم‌تر. */
+   انتخابی ← بالاترین امتیاز خرید. اولویت کمتر = مهم‌تر.
+
+   نکته‌ی حیاتی: ارزی که «هر دو» کش تازه دارد از فهرست نامزدها بیرون می‌رود.
+   بدون این شرط، ارز غنی‌شده با اولویت بالاتر هر چرخه دوباره انتخاب می‌شد و
+   صف هرگز به بقیه‌ی ارزها نمی‌رسید (صف قفل می‌شد). */
 function enrichmentCandidates(){
+  const MD = (typeof MarketData!=='undefined') ? MarketData : null;
   const cs = state.coins.filter(c => c.a && c.a.ok && tradable(c));
   return cs.map(c=>{
     const g = c.a.gate;
@@ -219,6 +224,10 @@ function enrichmentCandidates(){
     else if(g && g.state==='watch') p = 2;
     else if(c.a.buyScore >= 70) p = 3;
     else if(c.a.buyScore >= 58) p = 4;
+    if(p <= 4 && MD){
+      const ageO = MD.cacheAge('ohlc', c.id), ageC = MD.cacheAge('chart', c.id);
+      if(ageO != null && ageC != null && ageO <= MD.TTL.ohlc && ageC <= MD.TTL.chart) p = 9;   // کاملاً تازه ⇒ کاری ندارد
+    }
     return { id:c.id, p, score:c.a.buyScore };
   }).filter(x => x.p <= 4);
 }
@@ -256,12 +265,20 @@ async function runEnrichment(){
   const MD = (typeof MarketData!=='undefined') ? MarketData : null;
   if(!MD || !shortFresh()) return 0;
   MD.plan(enrichmentCandidates());
-  const id = MD.next();
+  /* دفاع لایه‌ی دوم در برابر قفل صف: اگر ارزی که انتخاب شده کاری ندارد،
+     از صف بیرون می‌رود و همان چرخه سراغ ارز بعدی می‌رویم — تا سقف ۵ تلاش. */
+  let id = null, coin = null;
+  for(let i = 0; i < 5; i++){
+    const cand = MD.next();
+    if(!cand) return 0;
+    const found = state.coins.find(c => c.id === cand);
+    if(!found){ MD.dropFromQueue(cand); continue; }
+    const ageO = MD.cacheAge('ohlc', cand), ageC = MD.cacheAge('chart', cand);
+    if(ageO != null && ageC != null && ageO <= MD.TTL.ohlc && ageC <= MD.TTL.chart){ MD.dropFromQueue(cand); continue; }
+    id = cand; coin = found; break;
+  }
   if(!id) return 0;
-  const coin = state.coins.find(c => c.id === id);
-  if(!coin){ MD.dropFromQueue(id); return 0; }
   const ageO = MD.cacheAge('ohlc', id), ageC = MD.cacheAge('chart', id);
-  if(ageO != null && ageC != null && ageO <= MD.TTL.ohlc && ageC <= MD.TTL.chart){ MD.dropFromQueue(id); return 0; }
   const t = Date.now();
   if(!MD.canEnrich(t)) return 0;          // بودجه اجازه نمی‌دهد — خطای ارز نیست
   let got = 0, failed = 0;
@@ -371,7 +388,7 @@ function deriveMarketData(c){
       out.cvdDir = ob.length > 6 ? (ob[ob.length - 1] > ob[ob.length - 6] ? 1 : ob[ob.length - 1] < ob[ob.length - 6] ? -1 : 0) : null;
     }
   }catch(e){ return empty; }
-  out.mdQuality = (out.candles4h ? 'ohlc' : '') + (out.candles1h ? '+vol' : '') || 'base';
+  out.mdQuality = (out.candles4h && out.candles1h) ? 'full' : (out.candles4h || out.candles1h) ? 'partial' : 'base';
   Object.defineProperty(out, '_stamp', { value:stamp, enumerable:false });
   c._mdDerived = out;
   return out;
@@ -478,10 +495,9 @@ function analyze(c,pre=null){
 
   /* لایه‌ی داده‌ی غنی‌شده: ATR واقعی، حجم و ساختار سایه‌دار.
      در نبود داده، همه‌ی میدان‌ها null می‌مانند و هیچ قاعده‌ای فعال نمی‌شود. */
-  const mdx = deriveMarketData(c);
-  Object.assign(a, mdx);
-  a.mdAt = mdx.mdAt;
-  a.mdQuality = (mdx.candles4h && mdx.candles1h) ? 'full' : (mdx.candles4h || mdx.candles1h) ? 'partial' : 'base';
+  /* میدان‌های لایه‌ی داده‌ی غنی‌شده (mdAt/atr/mdQuality/...) یک‌جا روی نتیجه
+     می‌نشینند. نبود داده = همه null ⇒ هیچ قاعده‌ی تازه‌ای فعال نمی‌شود. */
+  Object.assign(a, deriveMarketData(c));
 
   let sc=50; const S=[]; const add=(v,t)=>{ sc+=v; S.push({t,s:v}); };
   if(a.rsi<30) add(12,`RSI در ناحیه اشباع فروش (${a.rsi.toFixed(0)}) — پتانسیل بازگشت صعودی`);
@@ -682,7 +698,7 @@ function buyPlan(a, c, lastP, p){
     const atrAbs = mkt*a.atr/100;
     const wide = a.avgEntry - atrAbs*2.2, tight = a.avgEntry - atrAbs*0.9;
     if(stop < wide) stop = wide;
-    if(tight>0 && stop > tight && (a.avgEntry-tight)/a.avgEntry <= 0.15) stop = tight;
+    if(tight>0 && stop > tight && (a.avgEntry-tight)/a.avgEntry <= (CROWD.stopRiskCap ?? 0.15)) stop = tight;
     a.atrStopMult = atrAbs > 0 ? (a.avgEntry-stop)/atrAbs : null;
   } else a.atrStopMult = null;
   if(!(stop < a.avgEntry) || !(stop > 0)) stop = a.avgEntry*0.98;
@@ -1228,7 +1244,14 @@ async function loadAll(manual=false){
     state.coins=coins.map((c,i)=>({...c,a:analyze(c,indicators?.[i])}));
     state.liveData=true; state.dataAt=receivedAt;
     applyMarketContext();
-    try{ localStorage.setItem(LS_KEYS.cache, JSON.stringify({v:CACHE_VERSION,t:Date.now(),coins})); }catch(e){ try{ localStorage.removeItem(LS_KEYS.cache); }catch(_){} }
+    /* بلوک داده‌ی غنی‌شده در کش تحلیل ذخیره نمی‌شود: همان داده در کش خودِ
+       market-data با TTL و سقف تعداد نگه داشته می‌شود و در بارگذاری بعدی با
+       attachCachedMarketData دوباره می‌نشیند. این‌طور payload ذخیره‌سازی
+       چند برابر نمی‌شود و داده‌ی کهنه هم به تحلیل چسبیده نمی‌ماند. */
+    try{
+      const lean=coins.map(({md,_mdDerived,...rest})=>rest);
+      localStorage.setItem(LS_KEYS.cache, JSON.stringify({v:CACHE_VERSION,t:Date.now(),coins:lean}));
+    }catch(e){ try{ localStorage.removeItem(LS_KEYS.cache); }catch(_){} }
     $('#dot').classList.remove('err'); $('#statusTxt').textContent=`متصل • ${coins.length} ارز • ${faTime(Date.now())}`;
     $('#updTime').textContent=`آخرین بروزرسانی: ${faTime(Date.now())}`;
     mon.backoff=1;
@@ -1242,6 +1265,7 @@ async function loadAll(manual=false){
     const cachedCoins=marketRows(cache?.coins);
     const cacheValid=cache?.v===CACHE_VERSION && cachedCoins.length && age>=0 && age<=CACHE_MAX_AGE_MS;
     if(cacheValid){
+      attachCachedMarketData(cachedCoins);
       state.coins=cachedCoins.map(c=>({...c,a:analyze(c)})); applyMarketContext();
       const fresh=age<=CACHE_FRESH_MS;
       $('#statusTxt').textContent=`آفلاین — داده ${fresh?'تازه':'قدیمی'} (${faTime(cache.t)})`;

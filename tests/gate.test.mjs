@@ -522,6 +522,63 @@ test('غنی‌سازی: خطای شبکه صف را اشباع نمی‌کند 
   assert.ok(!api.MarketData.pendingIds().includes(id),'ارز سه‌بار-خطاخورده باید از صف رها شود');
 });
 
+/* ------------------------- آزمون‌های رگرسیون بازبینی نهایی ------------------------- */
+
+test('رگرسیون: صف غنی‌سازی قفل نمی‌شود و به همه‌ی نامزدها می‌رسد',async()=>{
+  const {api, network}=boot('riskon');
+  network.md=true;
+  await settled(api);
+  const candidates=api.enrichmentCandidates().length;
+  assert.ok(candidates>=3,'برای این آزمون به چند نامزد نیاز داریم');
+  for(let i=0;i<4*candidates+4;i++){ api.MarketData.resetBudget(); await api.runEnrichment(); }
+  const full=api.state.coins.filter(c=>c.md&&c.md.ohlc&&c.md.series).length;
+  assert.ok(full>=candidates,`از ${candidates} نامزد فقط ${full} ارز کاملاً غنی شد — صف قفل شده است`);
+  assert.equal(api.enrichmentCandidates().length,0,'ارزهای غنی‌شده باید از فهرست نامزدها بیرون بروند');
+  assert.equal(api.MarketData.next(),null,'صف پس از کامل شدن کار باید خالی بماند');
+});
+
+test('رگرسیون: کش تحلیل داده‌ی غنی‌شده را ذخیره نمی‌کند ولی بارگذاری مجدد آن را برمی‌گرداند',async()=>{
+  const network={md:true, deriv:null, fail:false};
+  const store=makeStorage();
+  const first=harnessBoot({
+    coins:market('riskon'), store, network,
+    hooks:{ ohlc:id=>ohlcFixture(id), chart:id=>chartFixture(id) }
+  });
+  await settled(first.api);
+  for(let i=0;i<16;i++){ first.api.MarketData.resetBudget(); await first.api.runEnrichment(); }
+  const enriched=first.api.state.coins.filter(c=>c.md&&c.md.ohlc).length;
+  assert.ok(enriched>=3,`پیش‌نیاز آزمون: چند ارز غنی‌شده لازم است (شد ${enriched})`);
+  const payload=store.getItem('cb_cache')||'';
+  assert.ok(payload.length>0,'کش تحلیل نوشته نشده است');
+  assert.doesNotMatch(payload,/"ohlc"|_mdDerived/,'بلوک داده‌ی غنی‌شده نباید در کش تحلیل تکرار شود');
+  assert.doesNotMatch(payload,/"md":/,'بلوک md نباید در کش تحلیل ذخیره شود');
+  /* بارگذاری مجدد با همان حافظه: داده باید از کش خودِ لایه‌ی داده بنشیند، بدون فراخوان تازه */
+  const second=harnessBoot({
+    coins:market('riskon'), store, network:{md:true, deriv:null, fail:false},
+    hooks:{ ohlc:id=>ohlcFixture(id), chart:id=>chartFixture(id) }
+  });
+  await settled(second.api);
+  const attached=second.api.state.coins.filter(c=>c.md&&c.md.ohlc).length;
+  assert.ok(attached>=enriched,`پس از بارگذاری مجدد فقط ${attached} از ${enriched} ارز غنی برگشت`);
+  assert.equal(second.network.hits.ohlc,0,'بارگذاری مجدد نباید کندل تازه واکشی کند');
+  assert.equal(second.network.hits.chart,0,'بارگذاری مجدد نباید سری حجم تازه واکشی کند');
+  assert.ok(second.api.state.coins.find(c=>c.md&&c.md.ohlc).a.atr>0,'ATR باید از داده‌ی کش‌شده محاسبه شود');
+});
+
+test('رگرسیون: نبود ماژول‌های لایه‌ی داده برنامه را نمی‌شکند',async()=>{
+  for(const omit of [['market-data.js'],['analytics.js'],['market-data.js','analytics.js']]){
+    const {api}=harnessBoot({coins:market('riskon'), omit, store:makeStorage(), network:{md:true}});
+    await settled(api);
+    await api.enrichCycle();
+    api.renderAll();
+    const btc=api.state.coins.find(c=>c.id==='bitcoin');
+    assert.equal(btc.a.mdQuality,'base',`با حذف ${omit.join('+')} باید تحلیل روی داده‌ی پایه بماند`);
+    assert.equal(btc.a.atr,null);
+    assert.ok(btc.a.gate&&btc.a.gate.state,'دروازه باید کار کند');
+    assert.ok(api.state.coins.length>5,`تحلیل باید ادامه پیدا کند (${api.state.coins.length} ارز)`);
+  }
+});
+
 /* ------------------------- اجرا ------------------------- */
 let pass=0, fail=0;
 for(const [name, fn] of results){

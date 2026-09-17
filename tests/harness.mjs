@@ -13,7 +13,7 @@ import vm from 'node:vm';
 export const MODULES=['analytics.js','market-data.js','short-engine.js','app.js'];
 
 export const DEFAULT_EXPORTS='state,gate,mon,perf,REGIMES,GATE_STATES,GATE_RULES,GATE_STRICT,bestList,applyMarketContext,'
-  +'evalMarketGate,evalCoinGate,gatePermit,gateRank,gateStats,gateBadge,detectEvents,perfCycle,perfOpen,'
+  +'evalMarketGate,evalCoinGate,gatePermit,gateRank,gateStats,gateBadge,detectEvents,perfCycle,perfOpen,renderAll,'
   +'exportCSV,renderGate,renderRegime,renderBest,renderList,renderModalInfo,renderCmp,renderAlerts,renderPerf,'
   +'syncGateUI,loadAll,setMon,shorts,shortCycle,updateShortPlans,renderShorts,exportShortCSV,shortCoinFresh,shortOptions,shortFresh,shortFreshKey,refreshModal,tick,pushAlert,marketRows,analyze,computeIndicatorsInWorker,'
   +'renderFNG,fngValue,buildSignalPayload,setSide,sideView,sideCounts,renderDual,renderSideTabs,renderApiPreview,SIGNAL_SCHEMA_VERSION,'
@@ -57,10 +57,16 @@ export function makeStorage(){
   return {getItem:k=>(m.has(k)?m.get(k):null), setItem:(k,v)=>m.set(k,String(v)), removeItem:k=>m.delete(k), clear:()=>m.clear(), _raw:m};
 }
 
-function appCode(exportsList){
+/* omit: حذف عمدی یک ماژول (مثلاً وقتی script مرورگر بارگذاری نشده) تا رفتار
+   «تخریب نرم» واقعاً آزمون شود، نه اینکه فقط در کد ادعا شود. */
+/* هر نام با گارد typeof صادر می‌شود تا حذف عمدی یک ماژول (سناریوی
+   «اسکریپت بارگذاری نشد») خودِ هارنس را نشکند و آزمون واقعاً اجرا شود. */
+function appCode(exportsList, omit=[]){
   const read=f=>readFileSync(new URL('../'+f,import.meta.url),'utf8');
-  return MODULES.map(read).join('\n')
-    +`\n;globalThis.__api={${exportsList}, trd:typeof tradable!=='undefined'?tradable:null};`;
+  const names=exportsList.split(',').map(x=>x.trim()).filter(Boolean)
+    .map(n=>`${n}:typeof ${n}!=='undefined'?${n}:null`);
+  return MODULES.filter(f=>!omit.includes(f)).map(read).join('\n')
+    +`\n;globalThis.__api={${names.join(',')}, trd:typeof tradable!=='undefined'?tradable:null};`;
 }
 
 /* boot — یک نسخه‌ی کامل از برنامه در زمینه‌ی Node بالا می‌آورد.
@@ -71,8 +77,8 @@ export function boot(opts={}){
   const {coins=[], global={data:{ total_market_cap:{usd:2.5e12}, total_volume:{usd:9e10},
       market_cap_change_percentage_24h_usd:1.2, market_cap_percentage:{btc:54.1, eth:16.2} }},
     fng={data:[{value:'52', value_classification:'Neutral'}]}, network={}, gateCfg={}, store=makeStorage(),
-    exportsList=DEFAULT_EXPORTS, hooks={}} = opts;
-  const code=appCode(exportsList);
+    exportsList=DEFAULT_EXPORTS, hooks={}, omit=[]} = opts;
+  const code=appCode(exportsList, omit);
   if(gateCfg.mode) store.setItem('cb_gate_v1', JSON.stringify(gateCfg));
   els.clear();
 
@@ -93,6 +99,9 @@ export function boot(opts={}){
   if(net.fail===undefined) net.fail=false;
   if(net.md===undefined) net.md=false;
   if(net.deriv===undefined) net.deriv=null;
+  /* شمارنده‌ی فراخوان‌ها: بدون آن نمی‌توان ثابت کرد «بارگذاری مجدد هیچ
+     فراخوان تازه‌ای نمی‌زند» یا «بودجه رعایت شده است». */
+  net.hits=net.hits||{markets:0, global:0, fng:0, deriv:0, ohlc:0, chart:0, other:0};
   const sandbox={
     document, console, Blob, AbortController, URL:{createObjectURL:()=>'blob:stub', revokeObjectURL(){}},
     localStorage:store, setTimeout, clearTimeout, setInterval:()=>0, clearInterval:()=>{},
@@ -103,14 +112,15 @@ export function boot(opts={}){
     fetch:async url=>{
       if(net.fail)throw new Error('test offline');
       const u=String(url);
-      if(u.includes('/derivatives')) return {ok:true, status:200, json:async()=>net.deriv||[]};
+      if(u.includes('/derivatives')){ net.hits.deriv++; return {ok:true, status:200, json:async()=>net.deriv||[]}; }
       const ohlc=u.match(/\/coins\/([^/?]+)\/ohlc/);
-      if(ohlc) return {ok:true, status:200, json:async()=>hooks.ohlc?hooks.ohlc(decodeURIComponent(ohlc[1])):[]};
+      if(ohlc){ net.hits.ohlc++; return {ok:true, status:200, json:async()=>hooks.ohlc?hooks.ohlc(decodeURIComponent(ohlc[1])):[]}; }
       const chart=u.match(/\/coins\/([^/?]+)\/market_chart/);
-      if(chart) return {ok:true, status:200, json:async()=>hooks.chart?hooks.chart(decodeURIComponent(chart[1])):{prices:[],total_volumes:[]}};
-      if(u.includes('/coins/markets')) return {ok:true, status:200, json:async()=>coins};
-      if(u.includes('/global')) return {ok:true, status:200, json:async()=>global};
-      if(u.includes('alternative.me')) return {ok:true, status:200, json:async()=>fng};
+      if(chart){ net.hits.chart++; return {ok:true, status:200, json:async()=>hooks.chart?hooks.chart(decodeURIComponent(chart[1])):{prices:[],total_volumes:[]}}; }
+      if(u.includes('/coins/markets')){ net.hits.markets++; return {ok:true, status:200, json:async()=>coins}; }
+      if(u.includes('/global')){ net.hits.global++; return {ok:true, status:200, json:async()=>global}; }
+      if(u.includes('alternative.me')){ net.hits.fng++; return {ok:true, status:200, json:async()=>fng}; }
+      net.hits.other++;
       return {ok:true, status:200, json:async()=>({prices:[]})};
     }
   };

@@ -47,7 +47,11 @@
     fundingWarm   : 30,   // درصد سالانه
     fundingHot    : 55,
     fundingNegWarm: -20,
-    fundingNegHot: -40
+    fundingNegHot: -40,
+    oiRisingPct   : 3,    // رشد OI (درصد) که «ورود پول تازه» شمرده می‌شود
+    rsiLongCrowd  : 62,   // RSI بالایی که ازدحام سمت خرید را تأیید می‌کند
+    rsiShortCrowd : 40,   // RSI پایینی که ازدحام سمت فروش را تأیید می‌کند
+    stopRiskCap   : 0.15  // سقف ریسک تا حد ضرر در پالایش ATR (۱۵٪)
   };
 
   /* ------------------------- محیط قابل تزریق ------------------------- */
@@ -368,25 +372,29 @@
   /* ------------------------- ازدحام (طبقه‌بندی خالص) ------------------------- */
   /* ترکیب سه شاهد: فاندینگ، تغییر OI، و وضعیت مومنتوم. فقط ترکیب
      «فاندینگ داغ + OI صعودی» اخطار قوی می‌دهد تا هشدار بی‌مورد ساخته نشود. */
-  function classifyCrowding(m, rsi, oiChangePct, th = THRESHOLDS){
+  function classifyCrowding(m, rsi, oiChangePct, th){
+    /* ادغام با پیش‌فرض‌ها: اگر مصرف‌کننده فقط بخشی از آستانه‌ها را بدهد، بقیه از
+       پیش‌فرض می‌آید. بدون این، مقایسه با undefined همیشه false می‌شود و کل
+       قاعده بی‌صدا خاموش می‌ماند (باگی که در بازبینی نهایی گرفته شد). */
+    const T = Object.assign({}, THRESHOLDS, th || {});
     const out = { side:null, level:null, fundingAnnual:null, oiChangePct:null, reason:null };
     if(!m || m.fundingAnnual == null) return out;
     out.fundingAnnual = m.fundingAnnual;
     out.oiChangePct = Number.isFinite(oiChangePct) ? oiChangePct : null;
-    const rising = out.oiChangePct != null && out.oiChangePct >= 3;
+    const rising = out.oiChangePct != null && out.oiChangePct >= T.oiRisingPct;
     const f = m.fundingAnnual;
-    if(f >= th.fundingWarm && (rising || rsi >= 62)){
+    if(f >= T.fundingWarm && (rising || rsi >= T.rsiLongCrowd)){
       out.side = 'long';
-      out.level = f >= th.fundingHot ? 'hot' : 'warm';
+      out.level = f >= T.fundingHot ? 'hot' : 'warm';
       out.reason = `ازدحام سمت خرید: فاندینگ سالانه ${f.toFixed(0)}٪` +
         (out.oiChangePct != null ? ` و رشد OI ${out.oiChangePct.toFixed(1)}٪` : '') +
-        (rsi >= 62 ? ` (RSI ${rsi.toFixed(0)})` : '');
-    } else if(f <= th.fundingNegWarm && (out.oiChangePct != null && out.oiChangePct >= 3 || rsi <= 40)){
+        (rsi >= T.rsiLongCrowd ? ` (RSI ${rsi.toFixed(0)})` : '');
+    } else if(f <= T.fundingNegWarm && (rising || rsi <= T.rsiShortCrowd)){
       out.side = 'short';
-      out.level = f <= th.fundingNegHot ? 'hot' : 'warm';
+      out.level = f <= T.fundingNegHot ? 'hot' : 'warm';
       out.reason = `ازدحام سمت فروش: فاندینگ سالانه ${f.toFixed(0)}٪` +
         (out.oiChangePct != null ? ` و رشد OI ${out.oiChangePct.toFixed(1)}٪` : '') +
-        (rsi <= 40 ? ` (RSI ${rsi.toFixed(0)})` : '');
+        (rsi <= T.rsiShortCrowd ? ` (RSI ${rsi.toFixed(0)})` : '');
     }
     return out;
   }

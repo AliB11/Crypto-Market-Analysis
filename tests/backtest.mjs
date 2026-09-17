@@ -16,7 +16,7 @@
    * هیچ نگاه به آینده‌ای وجود ندارد: هر پنجره فقط داده‌ی تا «همان لحظه» را
      می‌بیند و نتیجه از کندل‌های بعدی سنجیده می‌شود.
    ===================================================================== */
-import {boot, settled} from './harness.mjs';
+import {boot, settled, makeStorage} from './harness.mjs';
 
 const HOUR = 3600000;
 const STEP_HOURS = Number(process.env.BT_STEP || 24);       // فاصله‌ی پنجره‌ها
@@ -124,7 +124,8 @@ function chartAt(id, endIndex, hours = 168){
    می‌آید؛ در کف‌های ریزش، فاندینگ منفی می‌شود. */
 function derivAt(endIndex){
   const ch24 = (SERIES.closes[endIndex] / SERIES.closes[endIndex - 24] - 1) * 100;
-  const funding = Number((0.0001 + Math.max(-0.0009, Math.min(0.0012, ch24 * 0.00003))).toFixed(6));
+  /* فاندینگ با شدت روند بالا می‌رود: رالی ۵٪ روزانه ⇒ ~۶۵٪ سالانه (داغ) */
+  const funding = Number(Math.max(-0.0009, Math.min(0.0013, ch24 * 0.00012)).toFixed(6));
   const rows = [];
   ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'ADAUSDT', 'LINKUSDT', 'DOGEUSDT'].forEach(sym => {
     rows.push({market:'Binance (Futures)', symbol:sym, index_id:sym.replace(/USDT$/, ''), contract_type:'perpetual',
@@ -191,16 +192,32 @@ function outcome(src, entry, stop, tp, fromIndex, horizon){
   return {r:(src[last] - entry) / R, kind:'timeout', mfe, mae, hours:last - fromIndex};
 }
 
+/* تاریخچه‌ی OI ساختگی: در هر پنجره دو نمونه با ۵۰ دقیقه فاصله می‌کاریم تا
+   «رشد OI» (شاهد اصلی ازدحام) واقعاً محاسبه شود. بدون این، مسیر ازدحام هرگز
+   آزمایش نمی‌شد و آزمون سبز می‌شد بدون آنکه چیزی را سنجیده باشد. */
+const OI_SYMBOLS = ['BTC', 'ETH', 'SOL', 'ADA', 'LINK', 'DOGE'];
+function seedOi(store2, risePct){
+  const now = Date.now();
+  OI_SYMBOLS.forEach((sym, i) => {
+    const base = 4e8 * (1 + i * 0.2);
+    store2.setItem('cbmd:oi:' + sym, JSON.stringify([[now - 50 * 60000, base], [now - 10 * 60000, base * (1 + risePct / 100)]]));
+  });
+}
+
 /* ------------------------- اجرای یک بازو ------------------------- */
 /* هر مشاهده با دو برچسب ثبت می‌شود: وضعیت دروازه و کیفیت داده.
    این‌طور در یک اجرا می‌توان «تشخیص دروازه» و «ارزش لایه‌ی داده» را سنجید،
    بدون نیاز به اجرای جداگانه و بدون مقایسه‌ی سیب و پرتقال. */
 async function runArm({enriched}){
-  const obs = [];
+  const obs = [], crowdBlocked = [];
+  const cover = {windows:0, coinsSeen:0, gateOpen:0, gateWatch:0, gateBlocked:0, mdFull:0, funding:0, crowd:0};
   for(let end = WARMUP + 168; end + FILL_WINDOW + HORIZON < TOTAL_H + WARMUP; end += STEP_HOURS){
     const network = {md:enriched, deriv:enriched ? derivAt(end) : null};
+    const st = makeStorage();
+    if(enriched) seedOi(st, 6);
     const {api} = boot({
       coins:coinsAt(end),
+      store:st,
       network,
       hooks:{ ohlc:id => candles4h(id, end), chart:id => chartAt(id, end) }
     });
@@ -213,21 +230,36 @@ async function runArm({enriched}){
         if(!got) break;
       }
     }
+    cover.windows++;
     for(const c of api.state.coins){
       const a = c.a;
       if(!a || !a.ok) continue;
+      cover.coinsSeen++;
+      if(a.gate) cover[a.gate.state==='open'?'gateOpen':a.gate.state==='watch'?'gateWatch':'gateBlocked']++;
+      if(a.mdQuality==='full') cover.mdFull++;
+      if(a.fundingAnnual!=null) cover.funding++;
+      if(a.crowd) cover.crowd++;
       const src = seriesOf(c.id);
       const fillIdx = fillIndex(src, a.entry, end, FILL_WINDOW);
       const gateState = a.gate ? a.gate.state : 'none';
+      /* سیگنالی که «فقط» به دلیل ازدحام رد شده: خلاف واقعش را هم می‌سنجیم تا
+         بدانیم این فیلتر پول را نجات داده یا فرصت را سوزانده است. */
+      const onlyCrowd = gateState === 'blocked' && a.crowd && a.crowd.level === 'hot' &&
+        (a.gate.reasons || []).length > 0 && (a.gate.reasons || []).every(r => String(r).includes('ازدحام'));
+      if(onlyCrowd && fillIdx >= 0){
+        const cf = outcome(src, a.entry, a.stop, a.tp1, fillIdx, HORIZON);
+        if(cf) crowdBlocked.push({...cf, id:c.id, window:end, funding:a.fundingAnnual});
+      }
       if(fillIdx < 0){
         obs.push({kind:'nofill', r:null, id:c.id, window:end, gate:gateState, md:a.mdQuality || 'base'});
         continue;
       }
       const o = outcome(src, a.entry, a.stop, a.tp1, fillIdx, HORIZON);
-      if(o) obs.push({...o, id:c.id, window:end, gate:gateState, md:a.mdQuality || 'base', rr:a.rr});
+      if(o) obs.push({...o, id:c.id, window:end, gate:gateState, md:a.mdQuality || 'base', rr:a.rr,
+        crowd:a.crowd ? a.crowd.level : null, funding:a.fundingAnnual});
     }
   }
-  return obs;
+  return {obs, cover, crowdBlocked};
 }
 
 function stats(all){
@@ -250,8 +282,9 @@ const f = (v, d = 2) => (Number.isFinite(v) ? v.toFixed(d) : '∞');
 
 /* ------------------------- اجرا ------------------------- */
 const t0 = Date.now();
-const baseArm = await runArm({enriched:false});
-const richArm = await runArm({enriched:true});
+const baseRun = await runArm({enriched:false});
+const richRun = await runArm({enriched:true});
+const baseArm = baseRun.obs, richArm = richRun.obs;
 const line = (label, all, opts={}) => {
   const s = stats(all);
   if(!s.n) return console.log(label.padEnd(44), '0 — موردی برای سنجش نبود');
@@ -278,6 +311,51 @@ console.log('\n— مقایسه‌ی بازوها (کل سفارش‌های پر
 header();
 line('بازو الف: بدون لایه‌ی داده', baseArm);
 line('بازو ب: با لایه‌ی داده‌ی غنی‌شده', richArm);
+
+/* پوشش: آیا مسیرهای تازه عملاً آزمایش شده‌اند؟ بدون این جدول ممکن است یک قاعده
+   هرگز اجرا نشده باشد ولی «سبز» به نظر برسد. */
+console.log('\n— پوشش مسیرهای تصمیم (بازوهای الف/ب) —');
+console.log('بازو'.padEnd(30), 'پنجره'.padStart(7), 'ارز×پنجره'.padStart(10), 'دروازه باز'.padStart(10), 'انتخابی'.padStart(8), 'مسدود'.padStart(8), 'داده کامل'.padStart(10), 'فاندینگ'.padStart(8), 'ازدحام'.padStart(7));
+const cov = (label, r) => console.log(label.padEnd(30), String(r.cover.windows).padStart(7), String(r.cover.coinsSeen).padStart(10),
+  String(r.cover.gateOpen).padStart(10), String(r.cover.gateWatch).padStart(8), String(r.cover.gateBlocked).padStart(8),
+  String(r.cover.mdFull).padStart(10), String(r.cover.funding).padStart(8), String(r.cover.crowd).padStart(7));
+cov('الف: بدون لایه‌ی داده', baseRun);
+cov('ب: با لایه‌ی داده', richRun);
+
+console.log('\n— فرضیه‌ی ازدحام: آیا ستاپ‌های «ازدحام داغ» بدتر عمل می‌کنند؟ (فقط بازوی ب) —');
+{
+  const richObs = richRun.obs.filter(o => Number.isFinite(o.r) && o.crowd !== undefined);
+  const hot = richObs.filter(o => o.crowd === 'hot');
+  const warm = richObs.filter(o => o.crowd === 'warm');
+  const calm = richObs.filter(o => !o.crowd);
+  const show = (label, arr) => {
+    if(!arr.length) return console.log(label.padEnd(34), 'بدون نمونه');
+    const st2 = stats(arr);
+    console.log(label.padEnd(34), `n=${String(st2.n).padStart(4)} • برد٪ ${(st2.win * 100).toFixed(1).padStart(5)} • انتظار R ${f(st2.mean).padStart(6)} • PF ${f(st2.pf).padStart(5)}`);
+  };
+  show('ازدحام داغ (لانگ/شورت)', hot);
+  show('ازدحام گرم', warm);
+  show('بدون ازدحام', calm);
+  if(hot.length >= 8 && calm.length >= 8){
+    const d = stats(hot).mean - stats(calm).mean;
+    console.log(d < 0
+      ? `✅ ستاپ‌های ازدحام داغ ${f(d)}R بدتر از ستاپ‌های بدون ازدحام‌اند ⇒ احتیاط/جریمه جهت درست دارد`
+      : `⚠️ ستاپ‌های ازدحام داغ ${f(d)}R بهتر از بقیه‌اند ⇒ جریمه‌ی ازدحام روی این داده توجیه نمی‌شود (باید بازبینی شود)`);
+    console.log('   توجه: این مقایسه زیرگروهی است و با رژیم بازار هم‌خطی دارد؛ شاهد قطعی نیست.');
+  } else console.log('ℹ️ نمونه‌ی کافی برای مقایسه‌ی زیرگروهی نیست.');
+}
+
+const crowdAll = [...baseRun.crowdBlocked, ...richRun.crowdBlocked];
+console.log('\n— فیلتر ازدحام: سیگنال‌هایی که «فقط» به دلیل ازدحام رد شدند —');
+if(crowdAll.length){
+  const cs = stats(crowdAll);
+  console.log(`تعداد: ${cs.n} • برد٪: ${(cs.win * 100).toFixed(1)} • TP٪: ${(cs.tpRate * 100).toFixed(1)} • SL٪: ${(cs.stopRate * 100).toFixed(1)} • انتظار R: ${f(cs.mean)} • PF: ${f(cs.pf)}`);
+  console.log(cs.mean < 0
+    ? '✅ اگر این ورودها انجام می‌شدند، انتظار منفی داشتند ⇒ فیلتر ازدحام ضرر را حذف کرده است'
+    : '⚠️ این ورودها روی این داده زیان‌ده نبودند؛ فیلتر ازدحام در این اجرا فرصت را محدود کرده (روی داده‌ی ساختگی)');
+} else {
+  console.log('ℹ️ هیچ سیگنالی با شرط «فقط ازدحام» رد نشد — این مسیر در این اجرا سنجیده نشد (نه تأیید، نه رد).');
+}
 
 const st = (arr, key, val) => stats(arr.filter(o => o[key] === val));
 /* سؤال عملیاتی این است: ورودهای «مجاز» بهتر از «مسدود»ها هستند یا نه؟

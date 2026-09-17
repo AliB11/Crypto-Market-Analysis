@@ -73,6 +73,23 @@ test('ازدحام: فاندینگ داغ + OI صعودی ⇒ لانگ داغ؛ 
   assert.equal(MD.classifyCrowding({ fundingAnnual:60 }, 50, -2).side, null);
 });
 
+test('رگرسیون: آستانه‌های ازدحام از THRESHOLDS می‌آیند و شیء ناقص قاعده را خاموش نمی‌کند', () => {
+  /* باگی که در بازبینی نهایی گرفته شد: classifyCrowding کلیدهایی را می‌خواند
+     که در THRESHOLDS نبودند؛ مقایسه با undefined همیشه false می‌شود و کل
+     قاعده بی‌صدا خاموش می‌ماند. این آزمون هر دو جهت را قفل می‌کند. */
+  ['oiRisingPct','rsiLongCrowd','rsiShortCrowd','stopRiskCap'].forEach(k =>
+    assert.ok(Number.isFinite(MD.THRESHOLDS[k]), `کلید ${k} در THRESHOLDS نیست`));
+  /* مسیر OI: رشد OI با فاندینگ گرم ⇒ ازدحام (حتی وقتی RSI بالا نیست) */
+  assert.equal(MD.classifyCrowding({ fundingAnnual:40 }, 50, 5).side, 'long');
+  /* مسیر RSI: RSI بالا با فاندینگ گرم ⇒ ازدحام (حتی وقتی OI در دست نیست) */
+  assert.equal(MD.classifyCrowding({ fundingAnnual:40 }, 70, null).side, 'long');
+  /* آستانه‌ی سفارشی ناقص نباید قاعده را خاموش کند */
+  assert.equal(MD.classifyCrowding({ fundingAnnual:40 }, 50, 5, { fundingWarm:10 }).side, 'long');
+  /* ولی سفارشی می‌تواند سطح را تغییر دهد (منبع حقیقت واقعاً خوانده می‌شود) */
+  assert.equal(MD.classifyCrowding({ fundingAnnual:60 }, 50, 5, { fundingHot:200 }).level, 'warm');
+  assert.equal(MD.classifyCrowding({ fundingAnnual:60 }, 50, 1, { oiRisingPct:50 }).side, null);
+});
+
 test('بودجه: پروفایل‌ها و فاصله‌ی فراخوان', () => {
   fresh();
   assert.equal(MD.profile(), 'balanced');
