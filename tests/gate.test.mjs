@@ -9,114 +9,48 @@
    را می‌سنجد. یعنی همان کدی اجرا می‌شود که در مرورگر اجرا می‌شود.
    ===================================================================== */
 import {readFileSync} from 'node:fs';
-import vm from 'node:vm';
 import assert from 'node:assert/strict';
+import vm from 'node:vm';
 import {market} from './fixtures.mjs';
 
-/* ------------------------- DOM ساختگی ------------------------- */
-function ctx2d(){
-  const noop=()=>{};
-  return {clearRect:noop,beginPath:noop,arc:noop,stroke:noop,moveTo:noop,lineTo:noop,closePath:noop,
-    fill:noop,fillRect:noop,fillText:noop,setLineDash:noop,save:noop,restore:noop,clip:noop,rect:noop,
-    measureText:()=>({width:10}),createLinearGradient:()=>({addColorStop:noop}),scale:noop,translate:noop,
-    quadraticCurveTo:noop,bezierCurveTo:noop,drawImage:noop,getImageData:()=>({data:new Uint8ClampedArray(4)}),
-    putImageData:noop,font:'',textAlign:'',fillStyle:'',strokeStyle:'',lineWidth:1,lineCap:'',lineJoin:'',globalAlpha:1};
-}
-function makeEl(tag='div'){
-  const el={
-    tagName:String(tag).toUpperCase(), children:[], dataset:{}, _cls:new Set(),
-    style:{setProperty(){},removeProperty(){}}, textContent:'', innerHTML:'', value:'', checked:true,
-    href:'', download:'', clientWidth:320, clientHeight:90, width:320, height:100,
-    classList:{ add:(...c)=>c.forEach(x=>el._cls.add(x)), remove:(...c)=>c.forEach(x=>el._cls.delete(x)),
-      contains:c=>el._cls.has(c),
-      toggle:(c,f)=>{ const on=f===undefined?!el._cls.has(c):!!f; on?el._cls.add(c):el._cls.delete(c); return on; } },
-    querySelector:sel=>els.get(sel)||els.set(sel,makeEl()).get(sel),
-    querySelectorAll:()=>[], getContext:()=>ctx2d(),
-    getBoundingClientRect:()=>({left:0,top:0,right:320,bottom:90,width:320,height:90}),
-    addEventListener(){}, removeEventListener(){},
-    // Attributes are stored for real: assertions on aria-*/data-side would be vacuous otherwise.
-    _attrs:new Map(),
-    setAttribute(k,v){ el._attrs.set(String(k),String(v)); },
-    getAttribute:k=>el._attrs.has(String(k))?el._attrs.get(String(k)):null,
-    removeAttribute(k){ el._attrs.delete(String(k)); },
-    appendChild(c){ el.children.push(c); return c; }, removeChild(){}, focus(){}, click(){},
-    toDataURL:()=>'data:,'
-  };
-  return el;
-}
-const els=new Map();
+/* ------------------------- زمینه‌ی اجرا ------------------------- */
+import {boot as harnessBoot, makeStorage, settled, els} from './harness.mjs';
 
-function makeStorage(){
-  const m=new Map();
-  return {getItem:k=>(m.has(k)?m.get(k):null), setItem:(k,v)=>m.set(k,String(v)), removeItem:k=>m.delete(k), clear:()=>m.clear()};
-}
-
-/* داده‌ی ساختگی بازار — سری قیمتی ساعتگی ۷ روزه */
-/* ------------------------- اجرای اسکریپت واقعی برنامه ------------------------- */
-const EXPORTS='state,gate,mon,perf,REGIMES,GATE_STATES,GATE_RULES,GATE_STRICT,bestList,applyMarketContext,'
-  +'evalMarketGate,evalCoinGate,gatePermit,gateRank,gateStats,gateBadge,detectEvents,perfCycle,perfOpen,'
-  +'exportCSV,renderGate,renderRegime,renderBest,renderList,renderModalInfo,renderCmp,renderAlerts,renderPerf,'
-  +'syncGateUI,loadAll,setMon,shorts,shortCycle,updateShortPlans,renderShorts,exportShortCSV,shortCoinFresh,shortOptions,shortFresh,shortFreshKey,refreshModal,tick,pushAlert,marketRows,analyze,computeIndicatorsInWorker,'
-  +'renderFNG,fngValue,buildSignalPayload,setSide,sideView,sideCounts,renderDual,renderSideTabs,renderApiPreview,SIGNAL_SCHEMA_VERSION';
-
-function appCode(){
-  const app=readFileSync(new URL('../app.js',import.meta.url),'utf8');
-  return readFileSync(new URL('../short-engine.js',import.meta.url),'utf8')+'\n'+app
-    +`\n;globalThis.__api={${EXPORTS}, trd:typeof tradable!=='undefined'?tradable:null};`;
-}
-
-function boot(kind, gateCfg={}, existingStore=null){
-  const code=appCode();
-
-  const store=existingStore||makeStorage();
-  if(gateCfg.mode) store.setItem('cb_gate_v1', JSON.stringify(gateCfg));
-  els.clear();
-
-  let csvText=null; const network={fail:false}; const notices=[];
-  class Blob{ constructor(parts){ csvText=parts.join(''); } }
-  // Stand-in side tabs so tablist wiring and aria state can be asserted for real.
-  const sideTabEls=['long','short','both'].map(side=>{
-    const b=makeEl('button'); b.dataset.side=side; return b;
-  });
-  const document={
-    querySelector:sel=>{ if(!els.has(sel)) els.set(sel,makeEl()); return els.get(sel); },
-    querySelectorAll:sel=>String(sel).includes('side-tab')?sideTabEls:[],
-    addEventListener(){}, removeEventListener(){},
-    createElement:t=>makeEl(t), body:makeEl('body'), documentElement:makeEl('html')
-  };
-  const sandbox={
-    document, console, Blob, AbortController, URL:{createObjectURL:()=>'blob:stub', revokeObjectURL(){}},
-    localStorage:store, setTimeout, clearTimeout, setInterval:()=>0, clearInterval:()=>{},
-    requestAnimationFrame:cb=>{ try{ cb(0); }catch(e){} return 0; },
-    Notification:class {static permission='granted'; static async requestPermission(){return 'granted';} constructor(title,body){notices.push({title,body});}},
-    addEventListener(){}, removeEventListener(){},
-    navigator:{userAgent:'node'}, performance:{now:()=>Date.now()},
-    fetch:async url=>{
-      if(network.fail)throw new Error('test offline');
-      const u=String(url);
-      if(u.includes('/coins/markets')) return {ok:true, status:200, json:async()=>market(kind)};
-      if(u.includes('/global')) return {ok:true, status:200, json:async()=>({data:{
-        total_market_cap:{usd:2.5e12}, total_volume:{usd:9e10}, market_cap_change_percentage_24h_usd:1.2,
-        market_cap_percentage:{btc:54.1, eth:16.2}}})};
-      if(u.includes('alternative.me')) return {ok:true, status:200, json:async()=>({data:[{value:kind==='riskon'?'62':'41', value_classification:'Greed'}]})};
-      return {ok:true, status:200, json:async()=>({prices:[]})};
-    }
-  };
-  sandbox.location={hash:'',protocol:'https:'};
-  sandbox.history={replaceState(){}};
-  sandbox.window=sandbox; sandbox.globalThis=sandbox;
-  vm.createContext(sandbox);
-  vm.runInContext(code, sandbox, {filename:'index.html'});
-  return {api:sandbox.__api, getCsv:()=>csvText, store,network,notices,sandbox,sideTabEls};
-}
-
-async function settled(api, tries=200){
-  for(let i=0;i<tries;i++){
-    if(api.state.coins.length && api.state.regime && api.state.gate) return;
-    await new Promise(r=>setTimeout(r,5));
+/* کندل ۴ساعته‌ی ساختگی: روند صعودی با دامنه‌ی مشخص تا ATR غیرصفر بدهد و
+   «کف پیوت» داشته باشد؛ آخرین کندل یک شکست سقف با فاصله‌ی واقعی می‌سازد. */
+function ohlcFixture(id){
+  const out=[]; let p=100;
+  for(let i=0;i<90;i++){
+    const drift=(i<70?0.4:-0.2);
+    p+=drift;
+    out.push([1700000000000+i*4*3600000, p-0.2, p+1.2, p-1.2, p]);
   }
-  throw new Error('برنامه با داده‌ی ساختگی راه نیفتاد (state.coins/state.gate خالی ماند)');
+  p+=6; out.push([1700000000000+90*4*3600000, p-6, p+1, p-7, p]);   // کندل شکست سقف (۶ کندل اخیر)
+  return out;
 }
+function chartFixture(id){
+  const prices=[], total_volumes=[]; let p=100;
+  for(let i=0;i<168;i++){
+    p=p*(1+Math.sin(i/9)*0.002+0.0005);
+    const v=1000*(1+((i%24===23)?2.5:0));
+    prices.push([1700000000000+i*3600000, Number(p.toFixed(6))]);
+    total_volumes.push([1700000000000+i*3600000, v]);
+  }
+  return {prices, total_volumes};
+}
+/* پوشش نازک روی زمینه‌ی مشترک: همان امضای قبلی boot(kind, gateCfg, store)
+   تا آزمون‌های موجود دست‌نخورده بمانند. پرچم‌های شبکه پس از boot هم قابل
+   تغییرند (fetch همان شیء را می‌خواند). */
+function boot(kind, gateCfg={}, existingStore=null){
+  const network={md:false, deriv:null, fail:false};
+  return harnessBoot({
+    coins:market(kind), gateCfg, store:existingStore||makeStorage(), network,
+    /* شاخص ترس/طمع بخشی از سناریوست: ریسک‌پذیر = طمع، ریسک‌گریز = ترس */
+    fng:{data:[{value:kind==='riskon'?'62':'41', value_classification:kind==='riskon'?'Greed':'Fear'}]},
+    hooks:{ ohlc:id=>network.md?ohlcFixture(id):[], chart:id=>network.md?chartFixture(id):{prices:[],total_volumes:[]} }
+  });
+}
+
 
 /* ------------------------- آزمون‌ها ------------------------- */
 const results=[];
@@ -475,6 +409,117 @@ test('خروجی JSON در بازار ریزشی: شورت‌ها با نسخه�
       assert.ok(s.exit.tp1<s.entry.best&&s.exit.tp2<s.exit.tp1,'ترتیب اهداف شورت نادرست است');
     }
   });
+});
+
+/* ------------------------- لایه‌ی داده‌ی غنی‌شده ------------------------- */
+
+test('لایه‌ی داده: در نبود داده‌ی غنی‌شده هیچ میدان تازه‌ای فعال نمی‌شود',async()=>{
+  const {api}=boot('riskon');await settled(api);
+  const btc=api.state.coins.find(c=>c.id==='bitcoin');
+  assert.equal(btc.a.atr,null);
+  assert.equal(btc.a.mdQuality,'base');
+  assert.equal(btc.a.crowd,null);
+  assert.equal(btc.a.fundingAnnual,null);
+  /* صف غنی‌سازی پر می‌شود ولی بدون شبکه چیزی کش نمی‌شود */
+  assert.ok(api.enrichmentCandidates().length>0,'نامزدهای غنی‌سازی باید وجود داشته باشند');
+});
+
+test('مشتقات: فاندینگ داغ + OI صعودی امتیاز خرید را کم می‌کند و دروازه را می‌بندد',async()=>{
+  const base=boot('riskon'); await settled(base.api);
+  const baseBtc=base.api.state.coins.find(c=>c.id==='bitcoin').a.buyScore;
+
+  const {api,network}=boot('riskon');
+  network.deriv=[
+    {market:'Binance (Futures)',symbol:'BTCUSDT',index_id:'BTC',contract_type:'perpetual',funding_rate:0.0008,open_interest:5e9,volume_24h:2e9,basis:0.4,spread:0.02},
+    {market:'OKX',symbol:'BTC-USDT-SWAP',index_id:'BTC',contract_type:'perpetual',funding_rate:0.0009,open_interest:3e9,volume_24h:1e9,basis:0.5,spread:0.03},
+    {market:'Bybit',symbol:'SOLUSDT',index_id:'SOL',contract_type:'perpetual',funding_rate:0.0004,open_interest:4e8,volume_24h:2e8,basis:0.2,spread:0.02}
+  ];
+  await settled(api);
+  await api.enrichCycle();
+  const btc=api.state.coins.find(c=>c.id==='bitcoin');
+  assert.ok(btc.a.fundingAnnual>50,`فاندینگ سالانه محاسبه نشد: ${btc.a.fundingAnnual}`);
+  assert.equal(btc.a.derivVenues,2);
+  assert.equal(btc.a.crowd.side,'long');
+  assert.equal(btc.a.crowd.level,'hot');
+  assert.ok(btc.a.buyScore<baseBtc,`امتیاز خرید باید با ازدحام داغ کم شود (${btc.a.buyScore} در برابر ${baseBtc})`);
+  assert.ok(btc.a.ctx.some(x=>String(x.t).includes('ازدحام')),'دلیل ازدحام باید در زمینه‌ی بازار بیاید');
+  assert.ok(btc.a.gate.reasons.concat(btc.a.gate.fails||[]).some(r=>String(r).includes('ازدحام')),
+    'دروازه باید ازدحام داغ را به‌عنوان مانع ثبت کند');
+  assert.notEqual(btc.a.gate.state,'open');
+  /* ارزی که فاندینگ متوسط دارد نباید تنبیه شود */
+  const sol=api.state.coins.find(c=>c.id==='solana');
+  assert.ok(!sol.a.crowd || sol.a.crowd.level!=='hot','ازدحام گرم نباید مثل داغ رفتار کند');
+});
+
+test('مشتقات: فاندینگ منفی عمیق در شورت به‌عنوان ریسک اسکوییز دیده می‌شود',async()=>{
+  const {api,network}=boot('riskoff');
+  network.deriv=[
+    {market:'Binance (Futures)',symbol:'SOLUSDT',index_id:'SOL',contract_type:'perpetual',funding_rate:-0.0012,open_interest:4e8,volume_24h:2e8,basis:-0.5,spread:0.02},
+    {market:'Bybit',symbol:'SOL-USDT',index_id:'SOL',contract_type:'perpetual',funding_rate:-0.001,open_interest:3e8,volume_24h:1e8,basis:-0.4,spread:0.03}
+  ];
+  await settled(api);
+  await api.enrichCycle();
+  const sol=api.state.coins.find(c=>c.id==='solana');
+  assert.equal(sol.a.crowd.side,'short');
+  assert.equal(sol.a.crowd.level,'hot');
+  const plan=sol.a.plans && sol.a.plans.short;
+  if(plan && plan.score>=60){
+    const text=(plan.reasons||[]).join(' | ');
+    assert.ok(/اسکوییز|ازدحام/.test(text)||plan.blocked,`پلن شورت باید ریسک اسکوییز را منعکس کند: ${text}`);
+  }
+});
+
+test('غنی‌سازی: کندل ۴ساعته ATR و ساختار را فعال می‌کند، سری حجم تأیید حجم می‌آورد',async()=>{
+  const {api,network}=boot('riskon');
+  network.md=true;
+  await settled(api);
+  await api.enrichCycle();                                   // فراخوان کندل
+  const withOhlc=api.state.coins.filter(c=>c.md && c.md.ohlc);
+  assert.ok(withOhlc.length>=1,'هیچ ارزی غنی نشد');
+  const c1=withOhlc[0];
+  assert.ok(c1.a.atr!=null && c1.a.atr>0,`ATR محاسبه نشد: ${c1.a.atr}`);
+  assert.equal(c1.a.mdQuality,'partial');
+  assert.ok(Number.isFinite(c1.a.atrStopMult),'حد ضرر باید نسبت به ATR گزارش شود');
+  assert.ok(c1.a.stop<c1.a.avgEntry,'حد ضرر باید زیر میانگین ورود بماند');
+  api.MarketData.resetBudget();                              // شبیه‌سازی گذر زمان
+  await api.enrichCycle();                                   // فراخوان سری حجم (همان ارز یا ارز بعدی)
+  const full=api.state.coins.filter(c=>c.md && c.md.ohlc && c.md.series);
+  assert.ok(full.length>=1,'سری حجم واکشی نشد');
+  const c2=full[0];
+  assert.equal(c2.a.mdQuality,'full');
+  assert.ok(c2.a.volZ!=null || c2.a.mfi!=null,'میدان‌های حجم‌محور محاسبه نشدند');
+  assert.ok(api.mdStatusText().includes('غنی‌شده'),'متن وضعیت داده باید شمارش غنی‌شده‌ها را بگوید');
+  /* ارز غنی‌شده باید امتیاز تکنیکال واقعی‌تری داشته باشد: سیگنال‌های تازه ثبت شده‌اند */
+  assert.ok(c2.a.signals.some(s=>/Supertrend|ADX|MFI|CMF|شکست|حجم/.test(String(s.t))),
+    'سیگنال‌های مبتنی بر داده‌ی غنی‌شده در فهرست نیستند');
+});
+
+test('غنی‌شده‌ها: شکست سقف ۲۴ ساعته با تأیید حجم سیگنال خرید می‌سازد',async()=>{
+  const {api,network}=boot('riskon');
+  network.md=true;
+  await settled(api);
+  for(let i=0;i<3;i++){ api.MarketData.resetBudget(); await api.enrichCycle(); }
+  const brk=api.state.coins.filter(c=>c.md && c.a.brk24 && c.a.brk24.state==='up');
+  assert.ok(brk.length>=1,'داده‌ی ساختگی باید حداقل یک شکست سقف بسازد');
+  const c=brk[0];
+  assert.ok(c.a.volZ!=null,`حجم نسبی برای ارز شکست‌کرده محاسبه نشد (${c.a.volZ})`);
+  assert.ok(c.a.signals.some(s=>String(s.t).includes('شکست سقف ۲۴ ساعته')),'سیگنال شکست در فهرست نیست');
+});
+
+test('غنی‌سازی: خطای شبکه صف را اشباع نمی‌کند و cool‌دان فعال می‌شود',async()=>{
+  const {api,network}=boot('riskon');
+  network.md=false;                                          // کندل و سری حجم پاسخ خالی می‌دهند
+  await settled(api);
+  await api.enrichCycle();
+  const q1=api.MarketData.pendingIds();
+  assert.ok(q1.length>0,'صف باید پر بماند');
+  const failed=q1.filter(id=>api.MarketData.next()===null||true);
+  assert.ok(failed.length>0);
+  /* پس از سه خطا، ارز از صف برنامه‌ریزی حذف می‌شود */
+  const id=q1[0];
+  api.MarketData.fail(id); api.MarketData.fail(id); api.MarketData.fail(id);
+  api.MarketData.plan([{ id, p:1 }]);
+  assert.ok(!api.MarketData.pendingIds().includes(id),'ارز سه‌بار-خطاخورده باید از صف رها شود');
 });
 
 /* ------------------------- اجرا ------------------------- */

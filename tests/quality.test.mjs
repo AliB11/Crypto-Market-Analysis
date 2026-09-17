@@ -16,7 +16,35 @@ assert.match(app,/CACHE_MAX_AGE_MS=6\*60\*60\*1000/);
 assert.match(app,/cache\?\.v===CACHE_VERSION/);
 assert.match(app,/new Worker\('indicator-worker\.js'\)/);
 assert.match(css,/prefers-reduced-motion/);
-assert.match(sw,/cryptobin-shell-v6/);
+assert.match(sw,/cryptobin-shell-v7/);
+/* ماژول‌های تازه باید هم در HTML و هم در پوسته‌ی Service Worker باشند، وگرنه
+   نسخه‌ی آفلاین یا تحلیل با خطای «Analytics is not defined» می‌خوابد. */
+assert.match(html,/script src="analytics\.js" defer><\/script>/);
+assert.match(html,/script src="market-data\.js" defer><\/script>/);
+assert.ok(html.indexOf('analytics.js')<html.indexOf('app.js'),'analytics.js باید پیش از app.js بارگذاری شود');
+assert.ok(html.indexOf('market-data.js')<html.indexOf('app.js'),'market-data.js باید پیش از app.js بارگذاری شود');
+['analytics.js','market-data.js'].forEach(f=>assert.ok(sw.includes(`./${f}`),`${f} در فهرست پوسته‌ی SW نیست`));
+/* کنترل بودجه‌ی لایه‌ی داده و خط وضعیت آن باید در HTML باشند */
+assert.match(html,/id="mdProfile"/);
+assert.match(html,/id="mdStatus"/);
+/* دامنه‌ی تازه‌ای به CSP اضافه نشده باشد: همه‌ی فراخوان‌های تازه از همان
+   api.coingecko.com هستند، پس نباید origin تازه‌ای در connect-src باشد. */
+{
+  const csp=(html.match(/connect-src([^;"]+)/)||[])[1]||'';
+  const origins=[...csp.matchAll(/https:\/\/([a-z0-9.-]+)/gi)].map(m=>m[1]);
+  assert.deepEqual([...new Set(origins)].sort(),['api.alternative.me','api.coingecko.com'],
+    'دامنه‌ی غیرمنتظره در connect-src اضافه شده است');
+}
+/* ماژول‌های تازه باید UMD و بدون وابستگی به DOM باشند */
+{
+  const analytics=readFileSync(new URL('../analytics.js',import.meta.url),'utf8');
+  const md=readFileSync(new URL('../market-data.js',import.meta.url),'utf8');
+  [analytics,md].forEach((src,name)=>{
+    assert.doesNotMatch(src,/document\./,`${name} نباید به DOM وابسته باشد`);
+    assert.match(src,/module\.exports/,'ماژول‌ها باید در Node هم قابل بارگذاری باشند');
+  });
+  assert.match(md,/setEnv/,'لایه‌ی داده باید محیط تزریق‌پذیر داشته باشد تا آزمون‌پذیر بماند');
+}
 
 /* تب‌ها: ماتریس نمایش باید در CSS درست باشد — این بخش با DOM ساختگی Node پوشش داده نمی‌شود */
 {

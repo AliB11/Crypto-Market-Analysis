@@ -478,3 +478,11 @@
 .short-card h3 { margin:0 0 8px; }.short-card p { margin:8px 0; }
 .short-table { overflow:auto; }.short-table table { width:100%; white-space:nowrap; }
 #shortFresh { color:var(--muted); font-size:.8rem; }
+
+/* Enriched data layer: quality badge, funding/crowding rows and budget status */
+.mdq { display:inline-block; margin-inline-start:6px; padding:1px 7px; border-radius:999px; font-size:.66rem; font-weight:700; border:1px solid transparent; }
+.mdq.full { background:#00e6761f; color:var(--up); border-color:#00e67644; }
+.mdq.part { background:#fbbf241f; color:var(--pot); border-color:#fbbf2444; }
+.mdq.base { background:#94a3b81f; color:var(--muted); border-color:#94a3b844; font-weight:500; }
+.md-status-row { align-items:flex-start; }
+.md-status { font-size:.68rem; font-weight:400; color:var(--muted); max-width:62%; text-align:start; line-height:1.7; }
