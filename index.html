@@ -245,6 +245,15 @@
             <option value="off">خاموش (فقط نمایشی)</option>
           </select>
         </div>
+        <div class="swrow"><span>لایه‌ی داده‌ی غنی‌شده</span>
+          <select class="sel" id="mdProfile" title="هر ارز غنی‌شده دو فراخوان دارد (کندل ۴ساعته + سری حجم). بودجه تعیین می‌کند در هر ساعت چند ارز غنی شود — همه از دامنه‌ی رایگان CoinGecko."
+            aria-label="بودجه‌ی لایه‌ی داده">
+            <option value="eco">اقتصادی — ۶ ارز در ساعت</option>
+            <option value="balanced" selected>متعادل — ۲۰ ارز در ساعت</option>
+            <option value="full">کامل — ۴۰ ارز در ساعت</option>
+          </select>
+        </div>
+        <div class="swrow md-status-row"><span class="md-status-label">وضعیت داده</span><b class="md-status" id="mdStatus">—</b></div>
         <div class="swrow"><span>چرخه‌های انجام‌شده</span><b id="cycles">۰</b></div>
         <div class="swrow"><span>آخرین بررسی</span><b id="lastChk">—</b></div>
         <button class="btn" id="clearAl" style="width:100%;justify-content:center;margin-top:10px">🗑️ پاک کردن تاریخچه هشدارها</button>
@@ -327,6 +336,8 @@
   <span style="font-size:.7rem;opacity:.7">نسخه بهبودیافته — هماهنگی پیام‌ها، گرافیک و منطق تحلیلی بازبینی شد • دروازه‌ی رژیم، قدرت نسبی و بهترین قیمت خرید یکپارچه هستند</span>
 </footer>
 
+<script src="analytics.js" defer></script>
+<script src="market-data.js" defer></script>
 <script src="short-engine.js" defer></script>
 <script src="app.js" defer></script>
 </body>

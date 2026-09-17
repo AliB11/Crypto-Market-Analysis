@@ -49,6 +49,16 @@
     if(regime?.k==='riskon') score-=15;
     if(a.rsi<30) score-=25;
     if(a.diverg==='bull'||a.diverg==='hBull') score-=25;
+    /* شاهد مستقل از قیمت: فاندینگ فیوچرز. فاندینگ داغ مثبت یعنی ازدحام سمت
+       لانگ (به نفع شورت)، فاندینگ عمیقاً منفی یعنی ازدحام سمت شورت و ریسک
+       اسکوییز صعودی. بدون داده‌ی معتبر هیچ‌کدام اعمال نمی‌شود. */
+    const funding=Number.isFinite(a.fundingAnnual)?a.fundingAnnual:null;
+    if(funding!=null){
+      if(funding>=40) score+=6;
+      else if(funding<=-20) score-=8;
+      if(funding<=-40) score-=10;
+      if(funding<=-20 && a.oiChangePct!=null && a.oiChangePct>=3) score-=6;
+    }
     p.score=Math.round(clamp(score,0,100));
     // Hard safety checks are never bypassed by disabling the regime filter.
     if(options.benchmarkFresh===false) reasons.push('داده تازه بیت‌کوین برای رژیم و قدرت نسبی موجود نیست');
@@ -60,6 +70,9 @@
     if(px<=tp1||((px-tp1)/px)<vol*0.5) reasons.push('قیمت بیش از حد به حمایت نزدیک است');
     if((a.ch24||0)<-Math.max(8,a.dvol*2)) reasons.push('تعقیب سقوط شدید مجاز نیست');
     if(p.riskPct>15||((stop-px)/px)*100>15) reasons.push('حد ضرر ساختاری بیش از حد دور است');
+    /* فاندینگ عمیقاً منفی مانع ورود شورت است (سوخت اسکوییز). فاندینگ داغ
+       مثبت مانع نیست و فقط امتیاز را بالا می‌برد — چون ازدحام سمت مقابل است. */
+    if(funding!=null&&funding<=-40) reasons.push(`فاندینگ سالانه ${funding.toFixed(0)}٪ — شورت‌ها ازدحام دارند و ریسک اسکوییز صعودی بالاست`);
     const strict=options.mode==='strict', threshold=strict?78:68, minRR=strict?2:1.5;
     p.gate.need={score:threshold,rr:minRR};
     if(p.score<threshold) reasons.push(`امتیاز کمتر از ${threshold}`);
@@ -75,6 +88,7 @@
     const inZone=px>=p.entryLo&&px<=p.entryHi;
     if(inZone&&p.rrNow<minRR){ reasons.push('ریسک/بازده قیمت فعلی ناکافی');return p; }
     p.state=inZone?'ready':'waiting'; p.gate.state=inZone?'open':'watch';
+    p.fundingAnnual=a.fundingAnnual??null; p.oiChangePct=a.oiChangePct??null; p.crowd=a.crowd||null;
     reasons.push(inZone?'پولبک در محدوده و مومنتوم نزولی تأیید شده':'انتظار پولبک به محدوده؛ هنوز ورود انجام نشده');
     return p;
   }

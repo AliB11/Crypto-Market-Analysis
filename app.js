@@ -2,7 +2,10 @@
    کریپتوبین — منطق برنامه (نسخه بهبودیافته UX/گرافیک/پیام‌ها)
    ===================================================================== */
 const API = 'https://api.coingecko.com/api/v3';
-const CACHE_VERSION=2, CACHE_FRESH_MS=15*60*1000, CACHE_MAX_AGE_MS=6*60*60*1000;
+const CACHE_VERSION=3, CACHE_FRESH_MS=15*60*1000, CACHE_MAX_AGE_MS=6*60*60*1000;
+/* آستانه‌های لایه‌ی مشتقات — تنها منبع حقیقت، که با موتور شورت هم به اشتراک گذاشته می‌شود. */
+const CROWD = (typeof MarketData!=='undefined' && MarketData.THRESHOLDS) ? MarketData.THRESHOLDS
+  : { fundingWarm:30, fundingHot:55, fundingNegWarm:-20, fundingNegHot:-40, oiRisingPct:3, rsiLongCrowd:62, rsiShortCrowd:40 };
 const CATS = {
   sbuy:{k:'sbuy',label:'خرید قوی',c:'#00e676',icon:'🟢'},
   buy:{k:'buy',label:'خرید',c:'#4ade80',icon:'🟩'},
@@ -17,6 +20,7 @@ const LS_KEYS = {
   view:'cb_view', sort:'cb_sort', filter:'cb_filter', side:'cb_side_v1'
 };
 const state = {coins:[], global:null, fng:null, filter:'all', q:'', sort:'buy', view:'cards',
+  deriv:null, derivAt:null, derivCount:0, history:[], globalTrend:null,
   watch: (()=>{try{return JSON.parse(localStorage.getItem(LS_KEYS.watch)||'[]')}catch(e){return []}})(),
   watchOnly:false, modalCoin:null, tf:7, chartCache:{},
   cmp: (()=>{ try{ return JSON.parse(localStorage.getItem(LS_KEYS.cmp)||'[]'); }catch(e){ return []; } })()
@@ -126,6 +130,11 @@ function evalCoinGate(c, mkt){
   if(!isBtc && !(a.rs7>=need.rs7)) out.fails.push(`قدرت نسبی به BTC ${pct(a.rs7,1)} ضعیف‌تر از آستانه‌ی ${need.rs7>0?'+':''}${need.rs7}`);
   if(!need.states.includes(a.buyState)) out.fails.push(`وضعیت ورود: ${a.buyStateTxt} (مجاز: ${need.states.map(s=>({now:'در محدوده',below:'زیر محدوده',wait:'کمی صبر'}[s]||s)).join(' / ')})`);
   if(a.volRatio<0.008)       out.fails.push('حجم معاملات نسبت به ارزش بازار ناکافی است (نقدشوندگی پایین)');
+  /* فیلتر ازدحام فقط با داده‌ی معتبر فعال می‌شود: فاندینگ داغ + OI صعودی یعنی
+     خریداران اهرمی در اوج؛ ورود تازه در این نقطه ریسک اصلاح اهرمی دارد. */
+  if(a.crowd && a.crowd.side==='long' && a.crowd.level==='hot'){
+    out.fails.push(`${a.crowd.reason} — ورود تازه در اوج اهرم توصیه نمی‌شود`);
+  }
 
   if(!out.fails.length){
     out.state='open';
@@ -197,6 +206,193 @@ function linreg(a){ const n=a.length; let sx=0,sy=0,sxy=0,sxx=0; for(let i=0;i<n
 function volatility(a){ const r=[]; for(let i=1;i<a.length;i++) r.push(Math.log(a[i]/a[i-1])); const m=r.reduce((x,y)=>x+y,0)/r.length; const v=Math.sqrt(r.reduce((x,y)=>x+(y-m)**2,0)/r.length); return v; }
 const last=a=>{ for(let i=a.length-1;i>=0;i--) if(a[i]!=null) return a[i]; return null; };
 const prev=a=>{ let c=0; for(let i=a.length-1;i>=0;i--) if(a[i]!=null){ if(c===1) return a[i]; c++; } return null; };
+
+/* ارزهایی که در این چرخه ارزش هزینه‌ی فراخوان را دارند: واچ‌لیست ← مجاز ←
+   انتخابی ← بالاترین امتیاز خرید. اولویت کمتر = مهم‌تر.
+
+   نکته‌ی حیاتی: ارزی که «هر دو» کش تازه دارد از فهرست نامزدها بیرون می‌رود.
+   بدون این شرط، ارز غنی‌شده با اولویت بالاتر هر چرخه دوباره انتخاب می‌شد و
+   صف هرگز به بقیه‌ی ارزها نمی‌رسید (صف قفل می‌شد). */
+function enrichmentCandidates(){
+  const MD = (typeof MarketData!=='undefined') ? MarketData : null;
+  const cs = state.coins.filter(c => c.a && c.a.ok && tradable(c));
+  return cs.map(c=>{
+    const g = c.a.gate;
+    let p = 9;
+    if(state.watch.includes(c.id)) p = 0;
+    else if(g && g.state==='open') p = 1;
+    else if(g && g.state==='watch') p = 2;
+    else if(c.a.buyScore >= 70) p = 3;
+    else if(c.a.buyScore >= 58) p = 4;
+    if(p <= 4 && MD){
+      const ageO = MD.cacheAge('ohlc', c.id), ageC = MD.cacheAge('chart', c.id);
+      if(ageO != null && ageC != null && ageO <= MD.TTL.ohlc && ageC <= MD.TTL.chart) p = 9;   // کاملاً تازه ⇒ کاری ندارد
+    }
+    return { id:c.id, p, score:c.a.buyScore };
+  }).filter(x => x.p <= 4);
+}
+/* خروجی: true فقط وقتی داده‌ی تازه‌ای واکشی شده باشد (برای امتیازدهی مجدد). */
+async function refreshDerivatives(){
+  const MD = (typeof MarketData!=='undefined') ? MarketData : null;
+  if(!MD || !shortFresh()) return false;
+  const t = Date.now();
+  const cached = MD.cacheGet('deriv', 'all', MD.TTL.deriv);
+  if(cached){
+    state.derivAt = MD.cacheAge('deriv','all');
+    state.deriv = cached.bySymbol || null;
+    state.derivCount = cached.count || (state.deriv ? Object.keys(state.deriv).length : 0);
+    return false;
+  }
+  if(!MD.canEnrich(t, 'deriv')) return false;
+  MD.noteCall(t, 'deriv');
+  const url = `${API}/derivatives`;
+  const rows = await MD.getJSON(url, 15000);
+  if(!rows || rows.__error){ MD.backoffOn(rows && rows.status === 429); return false; }
+  const bySymbol = MD.derivativesBySymbol(rows);
+  const count = Object.keys(bySymbol).length;
+  if(!count) return false;
+  MD.cacheSet('deriv', 'all', { bySymbol, count });
+  state.deriv = bySymbol;
+  state.derivAt = 0;
+  state.derivCount = count;
+  Object.values(bySymbol).forEach(b => { if(b.symbol) MD.recordOi(b.symbol, b.oiUsd, t); });
+  return true;
+}
+/* در هر چرخه حداکثر یک قدم غنی‌سازی: یک فراخوان کندل و (در صورت اجازه‌ی
+   بودجه) یک فراخوان سری حجم. ارز فقط وقتی از صف بیرون می‌رود که «هر دو»
+   کش موجود باشد؛ در غیر این صورت چرخه‌ی بعد بقیه‌اش را می‌گیرد. */
+async function runEnrichment(){
+  const MD = (typeof MarketData!=='undefined') ? MarketData : null;
+  if(!MD || !shortFresh()) return 0;
+  MD.plan(enrichmentCandidates());
+  /* دفاع لایه‌ی دوم در برابر قفل صف: اگر ارزی که انتخاب شده کاری ندارد،
+     از صف بیرون می‌رود و همان چرخه سراغ ارز بعدی می‌رویم — تا سقف ۵ تلاش. */
+  let id = null, coin = null;
+  for(let i = 0; i < 5; i++){
+    const cand = MD.next();
+    if(!cand) return 0;
+    const found = state.coins.find(c => c.id === cand);
+    if(!found){ MD.dropFromQueue(cand); continue; }
+    const ageO = MD.cacheAge('ohlc', cand), ageC = MD.cacheAge('chart', cand);
+    if(ageO != null && ageC != null && ageO <= MD.TTL.ohlc && ageC <= MD.TTL.chart){ MD.dropFromQueue(cand); continue; }
+    id = cand; coin = found; break;
+  }
+  if(!id) return 0;
+  const ageO = MD.cacheAge('ohlc', id), ageC = MD.cacheAge('chart', id);
+  const t = Date.now();
+  if(!MD.canEnrich(t)) return 0;          // بودجه اجازه نمی‌دهد — خطای ارز نیست
+  let got = 0, failed = 0;
+  const md = coin.md || {};
+  if(ageO == null || ageO > MD.TTL.ohlc){
+    MD.noteCall(t);
+    const ohlc = MD.rowsToCandles(await MD.getJSON(`${API}/coins/${encodeURIComponent(id)}/ohlc?vs_currency=usd&days=30`, 15000));
+    if(ohlc){ MD.cacheSet('ohlc', id, ohlc); md.ohlc = ohlc; got++; } else failed++;
+  }
+  if((ageC == null || ageC > MD.TTL.chart) && MD.canEnrich(Date.now())){
+    MD.noteCall(Date.now());
+    const s = MD.priceVolumeSeries(await MD.getJSON(`${API}/coins/${encodeURIComponent(id)}/market_chart?vs_currency=usd&days=7`, 15000));
+    if(s){ MD.cacheSet('chart', id, s); md.series = s; got++; } else failed++;
+  }
+  if(got){
+    md.at = Date.now();
+    coin.md = md;
+    delete coin._mdDerived;
+    coin.a = analyze(coin);
+    applyMarketContext();
+  }
+  if(failed && !got) MD.fail(id);
+  if(MD.cacheAge('ohlc', id) != null && MD.cacheAge('chart', id) != null) MD.dropFromQueue(id);
+  return got;
+}
+/* داده‌ی کش‌شده را روی ارزها می‌نشاند — بدون هیچ فراخوان تازه. روی آرایه‌ی
+   خامِ پاسخ بازار هم کار می‌کند تا تحلیلِ همین چرخه از ابتدا غنی باشد. */
+function attachCachedMarketData(list){
+  const MD = (typeof MarketData!=='undefined') ? MarketData : null;
+  if(!MD) return;
+  (Array.isArray(list) ? list : state.coins).forEach(c=>{
+    if(!c || c.kind && c.kind !== 'asset') return;
+    if(assetKind(c) !== 'asset') return;
+    const ageO = MD.cacheAge('ohlc', c.id), ageC = MD.cacheAge('chart', c.id);
+    if(ageO == null && ageC == null) return;
+    const md = {};
+    /* مهلت مضاعف: داده‌ی کمی کهنه بهتر از نبود داده است، چون فقط محافظه‌کارانه‌
+       تر می‌کند (ATR بزرگ‌تر/شکست قدیمی) و هرگز سیگنال تازه نمی‌سازد. */
+    const ohlc = ageO != null ? MD.cacheGet('ohlc', c.id, MD.TTL.ohlc*4) : null;
+    const series = ageC != null ? MD.cacheGet('chart', c.id, MD.TTL.chart*4) : null;
+    if(ohlc) md.ohlc = ohlc;
+    if(series) md.series = series;
+    if(md.ohlc || md.series){
+      md.at = Date.now() - Math.min(ageO ?? Infinity, ageC ?? Infinity);
+      c.md = md;
+    }
+  });
+}
+function mdStatusText(){
+  const MD = (typeof MarketData!=='undefined') ? MarketData : null;
+  if(!MD) return 'لایه‌ی داده‌ی غنی‌شده در دسترس نیست';
+  const b = MD.budgetState();
+  const enriched = state.coins.filter(c => c.md && (c.md.ohlc || c.md.series)).length;
+  const throttle = b.throttledForMs > 0 ? ` • محدودیت نرخ: ${Math.ceil(b.throttledForMs/1000)} ثانیه` : '';
+  const deriv = state.derivCount ? ` • مشتقات: ${state.derivCount} نماد` : '';
+  return `بودجه: ${MD.PROFILES[b.profile].label} (${(b.gapMs/1000).toFixed(0)} ثانیه بین فراخوان‌ها) • غنی‌شده: ${enriched} ارز • در صف: ${MD.pendingCount()} • فراخوان امروز: ${b.callsToday}${deriv}${throttle}`;
+}
+
+/* =====================================================================
+   لایه‌ی داده‌ی غنی‌شده (فاز ۱)
+   کندل ۴ساعته و سری ساعتی حجم برای «ارزهای نامزد» جداگانه و با بودجه‌ی
+   محدود واکشی می‌شود. اگر برای ارزی داده‌ای نباشد، همه‌ی میدان‌های زیر
+   null می‌مانند و موتور قبلی بدون هیچ تغییری کار می‌کند — یعنی این لایه
+   فقط می‌تواند سیگنال را بهتر کند، نه اینکه نبودش چیزی را بشکند.
+   ===================================================================== */
+const MD_EMPTY = () => ({ mdAt:null, atr:null, stDir:null, adx:null, diPlus:null, diMinus:null,
+  volZ:null, volRatioH:null, cmf:null, mfi:null, obvSlope:null, vwapVol:null, cvdDir:null,
+  brk24:null, brk7d:null, swingLow:null, swingHigh:null, candles4h:0, candles1h:0, mdQuality:'base' });
+
+/* محاسبه‌ی میدان‌های غنی‌شده برای یک ارز — با حافظه‌ی داخلی تا هر چرخه
+   دوباره از صفر حساب نشود (کلید: زمان داده‌ی غنی‌شده). */
+function deriveMarketData(c){
+  const empty = MD_EMPTY();
+  const md = c && c.md;
+  if(!md || typeof Analytics === 'undefined') return empty;
+  const stamp = `${md.at||0}:${md.ohlc?md.ohlc.length:0}:${md.series?md.series.p.length:0}`;
+  if(c._mdDerived && c._mdDerived._stamp === stamp) return c._mdDerived;
+  const out = MD_EMPTY(), A = Analytics;
+  out.mdAt = md.at || null;
+  try{
+    if(Array.isArray(md.ohlc) && md.ohlc.length >= 30){
+      const cs = md.ohlc;
+      out.candles4h = cs.length;
+      out.atr = A.atrPct(cs, 14);
+      const st = A.supertrend(cs, 10, 3); out.stDir = A.lastNum(st.map(x => x.dir));
+      const ad = A.adx(cs, 14);
+      out.adx = A.lastNum(ad.adx); out.diPlus = A.lastNum(ad.plusDI); out.diMinus = A.lastNum(ad.minusDI);
+      out.brk24 = A.rangeBreakout(cs, 6);          // ۶ کندل ۴ساعته = ۲۴ ساعت
+      out.brk7d = A.rangeBreakout(cs, 42);         // ۴۲ کندل = ۷ روز
+      const piv = A.swingPivots(cs, 3, 3);
+      const lastP = c.current_price || cs[cs.length - 1][4];
+      const lows = piv.lows.filter(x => x.price < lastP);
+      const highs = piv.highs.filter(x => x.price > lastP);
+      out.swingLow = lows.length ? lows[lows.length - 1].price : null;
+      out.swingHigh = highs.length ? highs[highs.length - 1].price : null;
+    }
+    if(md.series && Array.isArray(md.series.p) && Array.isArray(md.series.v) && md.series.p.length >= 24){
+      const hourly = A.candlesFromSeries(md.series.p, md.series.v, md.series.t);
+      out.candles1h = hourly.length;
+      out.volZ = A.volumeZ(hourly, 48);
+      out.volRatioH = A.volumeRatio(hourly, 48);
+      out.mfi = A.lastNum(A.mfi(hourly, 14));
+      out.cmf = A.lastNum(A.cmf(hourly, 20));
+      out.obvSlope = A.obvSlope(hourly, 24);
+      out.vwapVol = A.vwap(hourly);
+      const ob = A.obv(hourly);
+      out.cvdDir = ob.length > 6 ? (ob[ob.length - 1] > ob[ob.length - 6] ? 1 : ob[ob.length - 1] < ob[ob.length - 6] ? -1 : 0) : null;
+    }
+  }catch(e){ return empty; }
+  out.mdQuality = (out.candles4h && out.candles1h) ? 'full' : (out.candles4h || out.candles1h) ? 'partial' : 'base';
+  Object.defineProperty(out, '_stamp', { value:stamp, enumerable:false });
+  c._mdDerived = out;
+  return out;
+}
 
 /* ------------------------- Core analysis ------------------------- */
 let workerSeq=0;
@@ -297,6 +493,12 @@ function analyze(c,pre=null){
     }
   }
 
+  /* لایه‌ی داده‌ی غنی‌شده: ATR واقعی، حجم و ساختار سایه‌دار.
+     در نبود داده، همه‌ی میدان‌ها null می‌مانند و هیچ قاعده‌ای فعال نمی‌شود. */
+  /* میدان‌های لایه‌ی داده‌ی غنی‌شده (mdAt/atr/mdQuality/...) یک‌جا روی نتیجه
+     می‌نشینند. نبود داده = همه null ⇒ هیچ قاعده‌ی تازه‌ای فعال نمی‌شود. */
+  Object.assign(a, deriveMarketData(c));
+
   let sc=50; const S=[]; const add=(v,t)=>{ sc+=v; S.push({t,s:v}); };
   if(a.rsi<30) add(12,`RSI در ناحیه اشباع فروش (${a.rsi.toFixed(0)}) — پتانسیل بازگشت صعودی`);
   else if(a.rsi<45) add(6,`RSI پایین‌تر از میانه (${a.rsi.toFixed(0)}) — فضای رشد وجود دارد`);
@@ -324,10 +526,32 @@ function analyze(c,pre=null){
   if(a.rangePos<0.05) add(3,'قیمت روی کف ۷ روزه — منطقه حمایتی');
   if(a.volRatio>0.2) add(3,`نسبت حجم به ارزش بازار بالا (${(a.volRatio*100).toFixed(0)}٪) — نقدشوندگی و توجه بالا`);
   else if(a.volRatio<0.02) add(-2,'حجم معاملات نسبت به ارزش بازار پایین');
+  /* ---------- سهم لایه‌ی غنی‌شده در امتیاز تکنیکال (فقط با داده‌ی معتبر) ---------- */
+  if(a.stDir!=null) add(a.stDir===1?4:-4, a.stDir===1?'Supertrend صعودی — روند تأییدشده با ATR':'Supertrend نزولی — روند تأییدشده با ATR');
+  if(a.adx!=null && a.adx>=25) add(a.diPlus>=a.diMinus?2:-2, `ADX قوی (${a.adx.toFixed(0)}) — روند جهت‌دار`);
+  if(a.mfi!=null){
+    if(a.mfi<20) add(4, `MFI در اشباع فروش پولی (${a.mfi.toFixed(0)})`);
+    else if(a.mfi>80) add(-4, `MFI در اشباع خرید پولی (${a.mfi.toFixed(0)})`);
+  }
+  if(a.cmf!=null){
+    if(a.cmf>0.15) add(3, 'جریان پول (CMF) مثبت — فشار خرید واقعی');
+    else if(a.cmf<-0.15) add(-3, 'جریان پول (CMF) منفی — فشار فروش واقعی');
+  }
+  if(a.brk24 && a.brk24.state==='up'){
+    if(a.volZ==null) add(1,'شکست سقف ۲۴ ساعته (بدون داده‌ی حجم برای تأیید)');
+    else add(a.volZ>=1 ? 5 : -3, a.volZ>=1 ? 'شکست سقف ۲۴ ساعته با تأیید حجم' : 'شکست سقف بدون تأیید حجم — ریسک شکست جعلی');
+  }
+  if(a.brk24 && a.brk24.state==='down'){
+    if(a.volZ==null) add(-1,'شکست کف ۲۴ ساعته (بدون داده‌ی حجم)');
+    else add(a.volZ>=1 ? -4 : -1, a.volZ>=1 ? 'شکست کف ۲۴ ساعته با حجم بالا' : 'شکست کف بدون تأیید حجم');
+  }
+  if(a.volZ!=null && a.ch24>6 && a.volZ<-0.5) add(-3,'رشد ۲۴ ساعته با حجمی کمتر از میانگین — ضعف تقاضا');
+  if(a.obvSlope!=null && a.ch7>3 && a.obvSlope<0) add(-3,'واگرایی قیمت/حجم: قیمت رشد کرده ولی OBV نزولی است');
   a.score=Math.round(clamp(sc,0,100)); a.signals=S;
 
   // مستعد رشد: بازگشت (RD+) یا ادامه روند (HD+) یا سایر سیگنال‌های برگشتی
-  const reversal=(a.rsi<42&&a.hist>a.histPrev)||(a.bbPos<0.15&&a.macdCross==='bull')||(a.bbWidth<4&&a.score>=48)||((a.diverg==='bull'||a.diverg==='hBull')&&a.divergStrength>=3);
+  const volBreakout = !!(a.brk24 && a.brk24.state==='up' && a.volZ!=null && a.volZ>=1);
+  const reversal=(a.rsi<42&&a.hist>a.histPrev)||(a.bbPos<0.15&&a.macdCross==='bull')||(a.bbWidth<4&&a.score>=48)||((a.diverg==='bull'||a.diverg==='hBull')&&a.divergStrength>=3)||volBreakout;
   if(a.score>=74) a.cat='sbuy';
   else if(a.score>=62) a.cat='buy';
   else if(reversal||(a.score>=53&&a.slopeH>0)) a.cat='pot';
@@ -382,8 +606,20 @@ function buyPlan(a, c, lastP, p){
   push(a.ema20,   1.0, 'EMA20');
   if(a.sma50!=null && a.sma50<mkt) push(a.sma50, 1.0, 'SMA50');
 
+  /* لنگر ساختاری تازه: نزدیک‌ترین کف پیوت «تأییدشده» با سایه‌ی واقعی (۴ساعته) */
+  if(a.swingLow!=null && a.swingLow<mkt) push(a.swingLow, 1.7, 'کف پیوت تأییدشده (۴ساعته)');
+  if(a.brk24 && a.brk24.low!=null && a.brk24.low<mkt) push(a.brk24.low, 1.0, 'کف دامنه ۲۴ ساعته');
+
   let vw=0, ww=0; p.forEach((x,i)=>{ const w=1+i/p.length; vw+=x*w; ww+=w; });
-  a.vwap = ww? vw/ww : mkt; push(a.vwap, 1.4, 'میانگین وزنی ۷ روزه');
+  if(a.vwapVol!=null && a.vwapVol>0){
+    a.vwap = a.vwapVol;                       // VWAP حجم‌وزن واقعی، جایگزین تقریب زمانی
+    a.vwapKind = 'volume';
+    push(a.vwap, 1.6, 'VWAP حجمی ۷ روزه');
+  } else {
+    a.vwap = ww? vw/ww : mkt;
+    a.vwapKind = 'time';
+    push(a.vwap, 1.4, 'میانگین وزنی ۷ روزه');
+  }
 
   const rng=a.high7-a.low7;
   a.fib382 = a.high7 - rng*0.382;
@@ -439,8 +675,11 @@ function buyPlan(a, c, lastP, p){
   a.avgEntry = a.ladder.reduce((s2,x)=>s2+x.p*x.w,0)/100;
   a.avgEntry = clamp(a.avgEntry, L3, mkt); // میانگین بین کمترین پله و بازار
 
-  // سطوح حد ضرر و اهداف بر پایه ATR-like (نوسان روزانه)
-  const atrLike = clamp(a.dvol,0.8,9)/100;
+  // سطوح حد ضرر و اهداف: اگر ATR واقعی موجود باشد، مبنای فاصله‌ها همان است؛
+  // وگرنه تقریب قبلی (نوسان لگاریتمی) دست‌نخورده می‌ماند. کف/سقف ۰.۸–۹٪ حفظ
+  // می‌شود تا حتی با ATR غیرعادی، هندسه‌ی پلن از محدوده‌ی معقول بیرون نزند.
+  const atrLike = clamp(a.atr!=null ? a.atr : a.dvol, 0.8, 9)/100;
+  a.atrLike = atrLike*100;
   let stop = Math.min(a.support*0.985, a.avgEntry*(1-atrLike*1.6));
   let tp1  = Math.max(Math.min(a.resist, a.avgEntry*(1+atrLike*3)), a.avgEntry*(1+atrLike*1.8));
   let tp2  = Math.max(tp1*1.02, Math.min(a.high7*1.01, a.avgEntry*(1+atrLike*4.5)), a.avgEntry*(1+atrLike*3.2));
@@ -450,6 +689,19 @@ function buyPlan(a, c, lastP, p){
   // تضمین stop زیر میانگین و زیر بازار
   stop = Math.min(stop, a.avgEntry*0.999, mkt*0.999);
   stop = Math.max(stop, a.avgEntry*0.70); // بیش از 30% پایین‌تر نرو
+
+  /* پالایش حد ضرر با ATR واقعی:
+     ۱) حد ضررِ دورتر از ۲.۲×ATR ریسک بی‌دلیل است و جمع می‌شود.
+     ۲) حد ضررِ نزدیک‌تر از ۰.۹×ATR داخل نویز معمول بازار است و عقب برده
+        می‌شود — مادامی که از سقف ریسک ۱۵٪ عبور نکند. */
+  if(a.atr!=null && a.atr>0){
+    const atrAbs = mkt*a.atr/100;
+    const wide = a.avgEntry - atrAbs*2.2, tight = a.avgEntry - atrAbs*0.9;
+    if(stop < wide) stop = wide;
+    if(tight>0 && stop > tight && (a.avgEntry-tight)/a.avgEntry <= (CROWD.stopRiskCap ?? 0.15)) stop = tight;
+    a.atrStopMult = atrAbs > 0 ? (a.avgEntry-stop)/atrAbs : null;
+  } else a.atrStopMult = null;
+  if(!(stop < a.avgEntry) || !(stop > 0)) stop = a.avgEntry*0.98;
 
   a.wideStop=false;
   if((a.avgEntry-stop)/a.avgEntry>0.15){ stop=a.avgEntry*0.85; a.wideStop=true; }
@@ -522,6 +774,13 @@ function applyMarketContext(){
   const btc=state.coins.find(c=>c.id==='bitcoin' && c.a.ok);
   const bull=cs.filter(c=>c.a.cat==='sbuy'||c.a.cat==='buy').length, breadth=cs.length? bull/cs.length : 0.5;
   const above=cs.filter(c=>c.current_price>c.a.sma20).length/(cs.length||1);
+  /* گستردگی «عینی» مستقل از طبقه‌بندی خودمان: سهم ارزهای مثبت در ۲۴ ساعت.
+     گستردگی قبلی (سهم برچسب‌های خرید) از همان امتیازی ساخته می‌شود که دروازه
+     فیلترش می‌کند؛ این معیار آن هم‌خطی را می‌شکند. */
+  const chs=cs.map(c=>c.a.ch24).filter(v=>Number.isFinite(v)).sort((x,y)=>x-y);
+  const objBreadth=cs.length? cs.filter(c=>c.a.ch24>0).length/cs.length : 0.5;
+  const medianCh24=chs.length? chs[Math.floor(chs.length/2)] : 0;
+  const gt=state.globalTrend||null;
   let pts=0, why=[];
   if(btc){
     const b=btc.a, px=btc.current_price;
@@ -534,9 +793,22 @@ function applyMarketContext(){
   if(breadth>0.55){ pts+=1; why.push(`گستردگی مثبت (${Math.round(breadth*100)}٪ سیگنال خرید/قوی)`); }
   else if(breadth<0.3){ pts-=1; why.push(`گستردگی ضعیف (${Math.round(breadth*100)}٪ سیگنال مثبت)`); }
   if(above>0.6) pts+=1; else if(above<0.3) pts-=1;
+  if(cs.length){
+    if(objBreadth>0.6 && medianCh24>0){ pts+=1; why.push(`گستردگی عینی: ${Math.round(objBreadth*100)}٪ ارزها در ۲۴ ساعت مثبت (میانه ${pct(medianCh24,1)})`); }
+    else if(objBreadth<0.35 && medianCh24<0){ pts-=1; why.push(`گستردگی عینی ضعیف: فقط ${Math.round(objBreadth*100)}٪ ارزها در ۲۴ ساعت مثبت (میانه ${pct(medianCh24,1)})`); }
+  }
+  /* روند سلطه/ارزش کل بازار از تاریخچه‌ی محلی — ورودی مستقل و بدون فراخوان تازه */
+  if(gt){
+    const d=gt.domChangePp, m=gt.mcapChangePct;
+    if(d!=null && m!=null){
+      if(d>=0.5 && m<=-1){ pts-=1; why.push(`سلطه‌ی بیت‌کوین ${pct(d,2)} واحد در ${Math.round(gt.spanHours)} ساعت با ارزش کل ${pct(m,1)} — خروج پول از آلت‌ها`); }
+      else if(d<=-0.5 && m>=1){ pts+=1; why.push(`سلطه‌ی بیت‌کوین رو به کاهش (${pct(d,2)} واحد) با رشد ارزش کل — چرخش به نفع آلت‌ها`); }
+    }
+  }
   const fng=fngValue();
   const k = pts>=3?'riskon' : pts<=-3?'riskoff' : 'neutral';
-  state.regime={...REGIMES[k], btcAvailable:!!btc&&shortCoinFresh(btc), pts, why, breadth, above, fng, btc7:btc?btc.a.ch7:0, btc24:btc?btc.a.ch24:0};
+  state.regime={...REGIMES[k], btcAvailable:!!btc&&shortCoinFresh(btc), pts, why, breadth, above,
+    objBreadth, medianCh24, gt, fng, btc7:btc?btc.a.ch7:0, btc24:btc?btc.a.ch24:0};
 
   state.gate=evalMarketGate(state.regime);
 
@@ -546,11 +818,33 @@ function applyMarketContext(){
     a.rs7 = btc? a.ch7 - btc.a.ch7 : 0;
     a.rs24= btc? a.ch24- btc.a.ch24 : 0;
     a.beta= (btc && Math.abs(btc.a.ch7)>0.5)? clamp(a.ch7/btc.a.ch7, -3, 4) : null;
+    /* ---------- لایه‌ی مشتقات (فاز ۲): ازدحام پوزیشن و سوخت اسکوییز ---------- */
+    const sym=String(c.symbol||'').toUpperCase();
+    const dr=state.deriv ? state.deriv[sym] : null;
+    a.fundingAnnual = dr && dr.fundingAnnual!=null ? dr.fundingAnnual : null;
+    a.fundingPct    = dr && dr.fundingPct!=null ? dr.fundingPct : null;
+    a.oiUsd         = dr && dr.oiUsd ? dr.oiUsd : null;
+    a.derivVenues   = dr ? dr.venues : 0;
+    a.oiChangePct   = (dr && typeof MarketData!=='undefined') ? MarketData.oiChangePct(sym) : null;
+    a.crowd         = (dr && typeof MarketData!=='undefined') ? MarketData.classifyCrowding(dr, a.rsi, a.oiChangePct, CROWD) : null;
+    if(a.crowd && !a.crowd.side) a.crowd = null;
+    a.derivAt = dr ? state.derivAt : null;
     let b=a.buyRaw;
     if(c.id!=='bitcoin'){
       b += adj;
       b += clamp(a.rs7,-12,12)*0.35;
       if(state.regime.k==='riskoff' && a.rs7>3) b+=3;
+    }
+    /* امتیاز ازدحام: خرید در اوج اهرم جریمه، و شورت‌های ازدحام‌شده (فاندینگ عمیقاً
+       منفی) در حالی که قیمت بالای SMA20 است، به‌عنوان سوخت اسکوییز پاداش می‌گیرند. */
+    if(a.crowd){
+      if(a.crowd.side==='long') b -= a.crowd.level==='hot' ? 7 : 3;
+      else if(a.crowd.side==='short' && c.current_price>a.sma20 && a.rs7>=0) b += a.crowd.level==='hot' ? 3 : 1.5;
+    }
+    /* رشد OI همراه با رشد قیمت = ورود پول تازه؛ رشد قیمت با OI نزولی = بستن پوزیشن */
+    if(a.oiChangePct!=null){
+      if(a.oiChangePct>=CROWD.oiRisingPct && a.ch24>3) b+=1.5;
+      else if(a.oiChangePct<=-CROWD.oiRisingPct && a.ch24>3) b-=1;
     }
     a.buyScore=Math.round(clamp(50+b,0,100)); setGrade(a);
     a.gate=evalCoinGate(c, state.gate);
@@ -561,6 +855,15 @@ function applyMarketContext(){
     }
     if(a.gate && !a.gate.exempt){
       a.ctx.push({t:`دروازه‌ی رژیم: ${GATE_STATES[a.gate.state].label}`, s:a.gate.state==='open'?0:a.gate.state==='watch'?-2:-5});
+    }
+    if(a.fundingAnnual!=null){
+      const oiTxt = a.oiChangePct!=null ? ` • تغییر OI: ${pct(a.oiChangePct,1)}` : '';
+      a.ctx.push({t:`فاندینگ سالانه‌ی فیوچرز (میانه‌ی ${a.derivVenues} بازار): ${pct(a.fundingAnnual,1)}${oiTxt}`,
+        s: a.crowd ? (a.crowd.side==='long'? -4 : 2) : 0});
+    }
+    if(a.crowd) a.ctx.push({t:a.crowd.reason, s:a.crowd.side==='long'?-4:2});
+    if(a.mdQuality!=='base' && a.atr!=null){
+      a.ctx.push({t:`داده‌ی غنی‌شده: ATR(14) چهارساعته ${a.atr.toFixed(2)}٪${a.volZ!=null?` • حجم نسبی ${a.volZ>=0?'+':''}${a.volZ.toFixed(1)}σ`:''}`, s:0});
     }
   });
   state.gate.stats=gateStats();
@@ -639,6 +942,7 @@ function shortDetails(c){
     <p>${p.gate.reasons.map(esc).join(' • ')}</p>
     ${p.valid?`<p>محدوده ورود: ${fmtP(p.entryLo)} تا ${fmtP(p.entryHi)} • مبنا: ${fmtP(p.entry)} | حد ضرر: ${fmtP(p.stop)} | اهداف: ${fmtP(p.tp1)} / ${fmtP(p.tp2)}</p>
     <p>R/R ورود: ${p.rr.toFixed(2)} | فعلی: ${p.rrNow.toFixed(2)}</p>
+    ${p.fundingAnnual!=null?`<p>فاندینگ سالانه‌ی فیوچرز: <b>${pct(p.fundingAnnual,1)}</b>${p.oiChangePct!=null?` • تغییر OI: ${pct(p.oiChangePct,1)}`:''} ${p.crowd&&p.crowd.side==='short'?'<b class="down">— ازدحام سمت شورت (ریسک اسکوییز)</b>':p.fundingAnnual>=40?'<b class="up">— ازدحام سمت لانگ (به نفع شورت)</b>':''}</p>`:''}
     ${pos?`<p>حجم بر مبنای ${p.state==='ready'?'قیمت فعلی':'ورود پیشنهادی'} و تنظیمات سرمایه: ${fmtN(pos.units,4)} واحد • ارزش اسمی: ${fmtP(pos.notional)} • زیان حد ضرر: ${fmtP(pos.loss)} • سود هدف اول: ${fmtP(pos.gain)}</p>`:''}`:''}`;
 }
 function shortFreshKey(){return [shortFresh(),...state.coins.map(c=>shortCoinFresh(c))].join('|');}
@@ -925,11 +1229,29 @@ async function loadAll(manual=false){
     if(fngResult.status==='fulfilled' && fngResult.value?.data?.[0]) state.fng=fngResult.value.data[0];
     else state.fng=null;
     const receivedAt=Date.now();
+    /* تاریخچه‌ی کلان: روند سلطه‌ی BTC و ارزش کل بازار بدون هیچ فراخوان تازه‌ای
+       ساخته می‌شود (فقط از همان پاسخ /global و تاریخچه‌ی محلی). */
+    if(typeof MarketData!=='undefined' && state.global){
+      try{
+        state.history = MarketData.pushHistory(state.history, state.global, receivedAt);
+        state.globalTrend = MarketData.globalTrend(state.history, receivedAt);
+      }catch(e){ state.globalTrend=null; }
+    }
     const indicators=await computeIndicatorsInWorker(coins);
+    /* داده‌ی غنی‌شده‌ی کش‌شده پیش از تحلیل می‌نشیند تا همین چرخه از ATR و
+       تأیید حجم بهره ببرد — با صفر فراخوان تازه. */
+    attachCachedMarketData(coins);
     state.coins=coins.map((c,i)=>({...c,a:analyze(c,indicators?.[i])}));
     state.liveData=true; state.dataAt=receivedAt;
     applyMarketContext();
-    try{ localStorage.setItem(LS_KEYS.cache, JSON.stringify({v:CACHE_VERSION,t:Date.now(),coins})); }catch(e){ try{ localStorage.removeItem(LS_KEYS.cache); }catch(_){} }
+    /* بلوک داده‌ی غنی‌شده در کش تحلیل ذخیره نمی‌شود: همان داده در کش خودِ
+       market-data با TTL و سقف تعداد نگه داشته می‌شود و در بارگذاری بعدی با
+       attachCachedMarketData دوباره می‌نشیند. این‌طور payload ذخیره‌سازی
+       چند برابر نمی‌شود و داده‌ی کهنه هم به تحلیل چسبیده نمی‌ماند. */
+    try{
+      const lean=coins.map(({md,_mdDerived,...rest})=>rest);
+      localStorage.setItem(LS_KEYS.cache, JSON.stringify({v:CACHE_VERSION,t:Date.now(),coins:lean}));
+    }catch(e){ try{ localStorage.removeItem(LS_KEYS.cache); }catch(_){} }
     $('#dot').classList.remove('err'); $('#statusTxt').textContent=`متصل • ${coins.length} ارز • ${faTime(Date.now())}`;
     $('#updTime').textContent=`آخرین بروزرسانی: ${faTime(Date.now())}`;
     mon.backoff=1;
@@ -943,6 +1265,7 @@ async function loadAll(manual=false){
     const cachedCoins=marketRows(cache?.coins);
     const cacheValid=cache?.v===CACHE_VERSION && cachedCoins.length && age>=0 && age<=CACHE_MAX_AGE_MS;
     if(cacheValid){
+      attachCachedMarketData(cachedCoins);
       state.coins=cachedCoins.map(c=>({...c,a:analyze(c)})); applyMarketContext();
       const fresh=age<=CACHE_FRESH_MS;
       $('#statusTxt').textContent=`آفلاین — داده ${fresh?'تازه':'قدیمی'} (${faTime(cache.t)})`;
@@ -1220,7 +1543,26 @@ function renderModalInfo(c){
   $('#mshort').innerHTML=shortDetails(c);
   const a=c.a,C=CATS[a.cat];
   $('#mhead').innerHTML=`<img src="${safeImg(c.image)}" alt="" loading="lazy"><div><h2>${esc(c.name)} <small style="color:var(--muted);font-size:.9rem">${esc(c.symbol.toUpperCase())} • رتبه #${esc(c.market_cap_rank)}</small></h2><span class="cat" style="--catc:${C.c}">${C.icon} ${C.label} — امتیاز تکنیکال ${a.score}/100 • امتیاز خرید ${a.buyScore} (${esc(a.grade)})</span>${a.kind!=='asset'?`<div style="font-size:.72rem;color:var(--pot);margin-top:4px">⚠️ ${KIND_LABEL[a.kind]} — از رتبه‌بندی «بهترین خرید» و کارنامه سیگنال‌ها مستثناست</div>`:''}</div><div class="mp">${fmtP(c.current_price)}<div style="font-size:.85rem" class="${cls(a.ch24)}">${pct(a.ch24)} (۲۴h) • RS/BTC ${pct(a.rs7,1)}</div></div>`;
-  $('#mkv').innerHTML=[['RSI (14)',a.rsi?.toFixed(1)],['MACD',a.macd?.toPrecision(3)],['Signal',a.sig?.toPrecision(3)],['Histogram',a.hist?.toPrecision(3)],['SMA 20',fmtP(a.sma20)],['SMA 50',fmtP(a.sma50)],['EMA 20',fmtP(a.ema20)],['باند بالا',fmtP(a.bbUp)],['باند پایین',fmtP(a.bbLo)],['موقعیت در باند',(a.bbPos*100).toFixed(0)+'%'],['پهنای باند',a.bbWidth?.toFixed(1)+'%'],['نوسان روزانه',a.dvol?.toFixed(2)+'%'],['شیب ۴۸h',(a.slopeH*24).toFixed(2)+'%/روز'],['کراس MA',a.cross==='golden'?'طلایی 🌟':a.cross==='death'?'مرگ ☠️':'—'],['کراس MACD',a.macdCross==='bull'?'صعودی':a.macdCross==='bear'?'نزولی':'—'],['قدرت نسبی ۷d',pct(a.rs7,1)],['بتا به BTC',a.beta!=null?a.beta.toFixed(2)+'×':'—']].map(([k,v])=>`<div>${esc(k)}<b>${v??'—'}</b></div>`).join('');
+  /* ردیف‌های داده‌ی غنی‌شده و مشتقات — فقط وقتی داده‌ی معتبر وجود دارد نمایش داده می‌شوند. */
+  const mdRows = a.atr!=null ? [
+    ['ATR (14) چهارساعته', a.atr.toFixed(2)+'%'],
+    ['Supertrend', a.stDir===1?'صعودی 📈':a.stDir===-1?'نزولی 📉':'—'],
+    ['ADX (14)', a.adx!=null?`${a.adx.toFixed(0)}${a.adx>=25?(a.diPlus>=a.diMinus?' صعودی قوی':' نزولی قوی'):' (بی‌روند)'}`:'—'],
+    ['حجم نسبی (σ)', a.volZ!=null?`${a.volZ>=0?'+':''}${a.volZ.toFixed(1)}`:'—'],
+    ['نسبت حجم', a.volRatioH!=null?a.volRatioH.toFixed(2)+'×':'—'],
+    ['MFI (14)', a.mfi!=null?a.mfi.toFixed(0):'—'],
+    ['CMF (20)', a.cmf!=null?a.cmf.toFixed(2):'—'],
+    ['شیب OBV', a.obvSlope!=null?a.obvSlope.toFixed(2):'—'],
+    ['VWAP حجمی', a.vwapVol!=null?fmtP(a.vwapVol):'—'],
+    ['شکست ۲۴ ساعته', a.brk24?(a.brk24.state==='up'?'سقف 📈':a.brk24.state==='down'?'کف 📉':'داخل دامنه'):'—'],
+  ] : [];
+  const dvRows = a.fundingAnnual!=null ? [
+    ['فاندینگ سالانه', pct(a.fundingAnnual,1)],
+    ['OI تجمیعی فیوچرز', a.oiUsd?fmtBig(a.oiUsd):'—'],
+    ['تغییر OI (≥۴۵ دقیقه)', a.oiChangePct!=null?pct(a.oiChangePct,1):'—'],
+    ['ازدحام پوزیشن', a.crowd?`${a.crowd.side==='long'?'سمت لانگ':'سمت شورت'} ${a.crowd.level==='hot'?'🔴 داغ':'🟡 گرم'}`:'متعادل'],
+  ] : [];
+  $('#mkv').innerHTML=[...mdRows,...dvRows,['RSI (14)',a.rsi?.toFixed(1)],['MACD',a.macd?.toPrecision(3)],['Signal',a.sig?.toPrecision(3)],['Histogram',a.hist?.toPrecision(3)],['SMA 20',fmtP(a.sma20)],['SMA 50',fmtP(a.sma50)],['EMA 20',fmtP(a.ema20)],['باند بالا',fmtP(a.bbUp)],['باند پایین',fmtP(a.bbLo)],['موقعیت در باند',(a.bbPos*100).toFixed(0)+'%'],['پهنای باند',a.bbWidth?.toFixed(1)+'%'],['نوسان روزانه',a.dvol?.toFixed(2)+'%'],['شیب ۴۸h',(a.slopeH*24).toFixed(2)+'%/روز'],['کراس MA',a.cross==='golden'?'طلایی 🌟':a.cross==='death'?'مرگ ☠️':'—'],['کراس MACD',a.macdCross==='bull'?'صعودی':a.macdCross==='bear'?'نزولی':'—'],['قدرت نسبی ۷d',pct(a.rs7,1)],['بتا به BTC',a.beta!=null?a.beta.toFixed(2)+'×':'—']].map(([k,v])=>`<div>${esc(k)}<b>${v??'—'}</b></div>`).join('');
   $('#msig').innerHTML=[...a.signals].sort((x,y)=>Math.abs(y.s)-Math.abs(x.s)).map(s=>`<li style="--sc:${s.s>0?'var(--up)':s.s<0?'var(--down)':'var(--hold)'}"><span>${s.s>0?'✅':s.s<0?'⛔':'ℹ️'}</span><span style="flex:1">${esc(s.t)}</span><b style="color:${s.s>0?'var(--up)':s.s<0?'var(--down)':'var(--muted)'}">${s.s>0?'+':''}${s.s}</b></li>`).join('')
     + ((a.ctx&&a.ctx.length)?`<li style="--sc:var(--accent);flex-direction:column;align-items:stretch"><div class="ctxsig"><b style="font-size:.78rem">🌐 زمینه‌ی بازار (روی امتیاز فرصت خرید اثر دارد)</b>${a.ctx.map(x=>`<div><span>${esc(x.t)}</span><b style="color:${x.s>0?'var(--up)':x.s<0?'var(--down)':'var(--muted)'}">${x.s>0?'+':''}${x.s}</b></div>`).join('')}${a.beta!=null?`<div><span>بتای ۷ روزه نسبت به BTC</span><b>${a.beta.toFixed(2)}×</b></div>`:''}</div></li>`:'');
   const tp=c.current_price*(1+a.pred/100), lo=c.current_price*(1+a.predLo/100), hi=c.current_price*(1+a.predHi/100);
@@ -1249,7 +1591,11 @@ function renderModalInfo(c){
     ${a.gate&&a.gate.exempt?`<div class="gate-note" style="--gc:${GATE_STATES.exempt.c}"><b>${GATE_STATES.exempt.icon} ${esc(GATE_STATES.exempt.label)}</b><ul><li>${esc(a.gate.reasons[0]||'')}</li></ul></div>`:''}
     <div style="margin-top:10px;font-size:.75rem;color:var(--muted);border-top:1px dashed rgba(255,255,255,.12);padding-top:8px">🧮 لنگرهای محاسبه قیمت ورود (وزن‌دار): ${anchTxt}</div>
     <div style="margin-top:6px;font-size:.78rem">امتیاز فرصت خرید: <b style="color:${a.gradeC}">${a.buyScore}/100 (${esc(a.grade)})</b> • اطمینان ${a.conf}٪ • نوسان ${esc(a.risk)}</div>`;
-  $('#msr').innerHTML=`<div class="s">حمایت کلیدی<b>${fmtP(a.support)}</b><small>${pct((a.support/c.current_price-1)*100,1)}</small></div><div class="r">مقاومت کلیدی<b>${fmtP(a.resist)}</b><small>${pct((a.resist/c.current_price-1)*100,1)}</small></div><div style="background:rgba(255,255,255,.05)">ریسک<b>${esc(a.risk)}</b><small>نوسان ${a.dvol?.toFixed(1)}٪</small></div>`;
+  const mdBadge = a.mdQuality==='full' ? `<span class="mdq full" title="کندل چهارساعته و حجم ساعتی برای این ارز تحلیل شده است — ATR و تأیید حجم فعال است">⚡ داده‌ی غنی‌شده</span>`
+    : a.mdQuality==='partial' ? `<span class="mdq part" title="فقط بخشی از داده‌ی کندل/حجم موجود است">⚡ داده‌ی ناقص</span>`
+    : `<span class="mdq base" title="تحلیل فقط بر پایه‌ی قیمت ساعتی هفت‌روزه است؛ حجم و ATR واقعی در دسترس نیست">◽ داده‌ی پایه</span>`;
+  $('#msr').innerHTML=`<div class="s">حمایت کلیدی<b>${fmtP(a.support)}</b><small>${pct((a.support/c.current_price-1)*100,1)}</small></div><div class="r">مقاومت کلیدی<b>${fmtP(a.resist)}</b><small>${pct((a.resist/c.current_price-1)*100,1)}</small></div><div style="background:rgba(255,255,255,.05)">ریسک<b>${esc(a.risk)}</b><small>نوسان ${a.dvol?.toFixed(1)}٪</small></div>`
+    + `<div style="background:rgba(255,255,255,.05)">کیفیت داده${mdBadge}<small>${a.mdAt?`غنی‌سازی: ${faTime(a.mdAt)}`:'بدون غنی‌سازی'}</small></div>`;
   $('#mmkt').innerHTML=[['ارزش بازار',fmtBig(c.market_cap)],['حجم ۲۴h',fmtBig(c.total_volume)],['حجم/ارزش',(a.volRatio*100).toFixed(1)+'%'],['سقف ۲۴h',fmtP(c.high_24h)],['کف ۲۴h',fmtP(c.low_24h)],['ATH',fmtP(c.ath)],['فاصله از ATH',pct(c.ath_change_percentage,1)],['عرضه در گردش',fmtN(c.circulating_supply,0)],['عرضه کل',c.total_supply?fmtN(c.total_supply,0):'∞'],['تغییر ۳۰ روزه',pct(a.ch30,1)],['قدرت نسبی ۷d',pct(a.rs7,1)],['بتا به BTC',a.beta!=null?a.beta.toFixed(2)+'×':'—']].map(([k,v])=>`<div>${esc(k)}<b>${v}</b></div>`).join('');
 }
 
@@ -1385,6 +1731,7 @@ function renderBest(){
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:9px;font-size:.73rem;color:var(--muted);flex-wrap:wrap;gap:4px">
         <span class="cat" style="--catc:${C.c};font-size:.7rem">${C.icon} ${C.label}</span>
         <span>پیش‌بینی ۷روزه: <b class="${cls(a.pred)}">${pct(a.pred,1)}</b></span>
+        <span title="ATR چهارساعته (نوسان واقعی) و تأیید حجم — وقتی فعال باشد، حد ضرر و اهداف بر پایه‌ی نوسان واقعی‌اند">${a.atr!=null?`ATR: <b>${a.atr.toFixed(1)}٪</b>${a.volZ!=null?` • حجم: <b class="${a.volZ>=1?'up':a.volZ<=-0.5?'down':''}">${a.volZ>=0?'+':''}${a.volZ.toFixed(1)}σ</b>`:''}`:'<span style="opacity:.7">داده‌ی پایه</span>'}</span>
         <span title="قدرت نسبی ۷ روزه در برابر بیت‌کوین — مثبت یعنی مقاوم‌تر از BTC">RS/BTC: <b class="${cls(a.rs7)} rs">${pct(a.rs7,1)}</b></span>
       </div>
       <div style="display:flex;justify-content:space-between;margin-top:5px;font-size:.71rem;color:var(--muted);flex-wrap:wrap;gap:4px">
@@ -1497,12 +1844,39 @@ function detectEvents(){
         const mv=(c.current_price/pv.price-1)*100;
         if(Math.abs(mv)>=3){ pushAlert(c,mv>0?'sig':'risk',`جهش قیمتی ${pct(mv,1)} در یک چرخه — ${mv>0?'قدرت خریداران':'فشار فروش'}`, mv>0?'#22c55e':'#ef4444', watched); fresh++; }
       }
+      /* رویدادهای «تایپ‌شده»ی لایه‌ی غنی‌شده — فقط وقتی داده‌ی معتبر موجود باشد.
+         این‌ها همان قواعدی هستند که در امتیاز اثر می‌گذارند، ولی اینجا صریح و
+         قابل‌ردیابی گزارش می‌شوند تا کاربر بداند «چرا» هشدار آمد. */
+      if(a.mdQuality!=='base' || pv.volZ!=null){
+        if(a.brk24 && a.brk24.state==='up' && pv.brk24!=='up' && pass('sig')){
+          const strong = a.volZ!=null && a.volZ>=1;
+          pushAlert(c, strong?'buy':'sig', strong
+            ? `شکست سقف ۲۴ ساعته با تأیید حجم (${a.volRatioH!=null?a.volRatioH.toFixed(1)+'× میانگین':'حجم بالای میانگین'}) — سطح ${fmtP(a.brk24.high)}`
+            : `شکست سقف ۲۴ ساعته بدون تأیید حجم — ریسک شکست جعلی`, strong?'#00e676':'#fbbf24', strong&&watched);
+          fresh++;
+        }
+        if(a.brk24 && a.brk24.state==='down' && pv.brk24!=='down' && pass('sig')){
+          pushAlert(c,'risk',`شکست کف ۲۴ ساعته${a.volZ!=null&&a.volZ>=1?' با حجم بالا':''} — ساختار تکنیکال ضعیف شد`, '#ef4444', watched); fresh++;
+        }
+        if(pv.volZ!=null && a.volZ!=null && a.volZ>=2.5 && pv.volZ<2.5 && pass('sig')){
+          const up=c.a.ch24>=0;
+          pushAlert(c, up?'sig':'risk', `جهش حجم (${a.volZ.toFixed(1)}σ بالای میانگین) در جهت ${up?'صعود':'نزول'}${a.cmf!=null?` — ${a.cmf>0.1?'جریان پول ورودی':a.cmf<-0.1?'جریان پول خروجی':'جریان پول بی‌طرف'}`:''}`, up?'#4ade80':'#fb7185', watched); fresh++;
+        }
+        const crowdKey = a.crowd ? a.crowd.side+':'+a.crowd.level : null;
+        if(a.crowd && a.crowd.level==='hot' && pv.crowd!==crowdKey && pass('sig')){
+          pushAlert(c,'risk',`⚠️ ${a.crowd.reason} — ورود تازه در اوج اهرم توصیه نمی‌شود`, '#fbbf24', watched); fresh++;
+        }
+        if(a.fundingAnnual!=null && Math.abs(a.fundingAnnual)>=CROWD.fundingHot && (pv.fundingAnnual==null || Math.abs(pv.fundingAnnual)<CROWD.fundingHot) && pass('sig')){
+          pushAlert(c,'risk',`فاندینگ سالانه به ${pct(a.fundingAnnual,1)} رسید — ${a.fundingAnnual>0?'ازدحام سمت خرید':'ازدحام سمت فروش (ریسک اسکوییز)'}`, '#fbbf24', watched); fresh++;
+        }
+      }
       if(watched){
         if(pv.price<a.tp1 && c.current_price>=a.tp1){ pushAlert(c,'sig',`به هدف اول رسید (${fmtP(a.tp1)}) 🎯 — ذخیره سود را بررسی کنید`, '#00e676', true); fresh++; }
         if(pv.price>a.stop && c.current_price<=a.stop){ pushAlert(c,'risk',`زیر حد ضرر بسته شد (${fmtP(a.stop)}) ⚠️ — مدیریت ریسک`, '#ef4444', true); fresh++; }
       }
     }
-    mon.prev[c.id]={cat:a.cat,score:a.score,buyScore:a.buyScore,buyState:a.buyState,rsi:a.rsi,cross:a.cross,macdCross:a.macdCross,price:c.current_price,tp1:a.tp1,stop:a.stop};
+    mon.prev[c.id]={cat:a.cat,score:a.score,buyScore:a.buyScore,buyState:a.buyState,rsi:a.rsi,cross:a.cross,macdCross:a.macdCross,price:c.current_price,tp1:a.tp1,stop:a.stop,
+      volZ:a.volZ??null, brk24:a.brk24?a.brk24.state:null, crowd:a.crowd?a.crowd.side+':'+a.crowd.level:null, fundingAnnual:a.fundingAnnual??null};
   });
   if(state.regime && mon.prevRegime && mon.prevRegime!==state.regime.k){
     const R=state.regime, btc=state.coins.find(c=>c.id==='bitcoin');
@@ -1551,6 +1925,28 @@ function tick(){
   if(mon.left<=0){ mon.left=mon.iv; loadAll(false); }
 }
 
+/* یک قدم غنی‌سازی در هر چرخه + تازه‌سازی مشتقات (هر دو با بودجه‌ی نرخ‌محدود).
+   خطا هرگز چرخه‌ی اصلی را نمی‌شکند: لایه‌ی غنی‌شده «تلاش بهترین» است. */
+let mdBusy=false;
+async function enrichCycle(){
+  if(mdBusy) return;                       // یک لایه‌ی داده در هر لحظه کافی است
+  mdBusy=true;
+  try{
+    let derivFresh=false;
+    try{ derivFresh=await refreshDerivatives(); }catch(e){}
+    if(derivFresh) applyMarketContext();                    // امتیاز ازدحام تازه شود
+    let got=0;
+    try{ got=await runEnrichment(); }catch(e){}
+    updateMdStatus();
+    if(got){ renderAll(); toast(`⚡ داده‌ی غنی‌شده‌ی ${got} ارز بروزرسانی شد (ATR واقعی و تأیید حجم فعال شد)`); }
+  }catch(e){ /* لایه‌ی داده هرگز نباید چرخه‌ی اصلی را بشکند */ }
+  finally{ mdBusy=false; }
+}
+function updateMdStatus(){
+  const el=$('#mdStatus'); if(!el) return;
+  el.textContent=mdStatusText();
+  el.title=mdStatusText();
+}
 function afterCycle(){
   mon.cycles++;
   shortCycle();
@@ -1559,6 +1955,7 @@ function afterCycle(){
   $('#lastChk').textContent=faTime(Date.now());
   $('#monHint').textContent=`هر ${mon.iv} ثانیه یک بار کل بازار واکشی، تحلیل و با چرخه قبل مقایسه می‌شود • ${mon.cycles} چرخه انجام شده • دروازه: ${state.gate?GATE_STATES[state.gate.state].label:'—'}`;
   detectEvents();
+  enrichCycle();
 }
 
 function setMon(on){
@@ -1573,6 +1970,13 @@ function setMon(on){
 $('#swMon').onclick=()=>{ setMon(!mon.on); toast(mon.on?'▶️ پایش مداوم فعال شد':'⏸️ پایش مداوم متوقف شد'); };
 $('#swMon').onkeydown=e=>{ if(e.key==='Enter'||e.key===' ') { e.preventDefault(); $('#swMon').click(); } };
 $('#ivSel').onchange=e=>{ mon.iv=+e.target.value; mon.left=mon.iv; monSave(); $('#monHint').textContent=`هر ${mon.iv} ثانیه یک بار کل بازار واکشی و تحلیل می‌شود`; toast(`⏱️ فاصله بررسی روی ${mon.iv} ثانیه تنظیم شد`); };
+/* بودجه‌ی لایه‌ی داده: هر ارز دو فراخوان دارد؛ کاربر با این کنترل تعیین می‌کند
+   چند ارز در ساعت غنی شود. حذف/افزودن داده هرگز روی موتور اصلی اثر مخرب ندارد. */
+$('#mdProfile').onchange=e=>{
+  if(typeof MarketData!=='undefined') MarketData.setProfile(e.target.value);
+  updateMdStatus();
+  toast(`⚡ بودجه‌ی داده روی «${e.target.selectedOptions[0]?.textContent?.trim()||''}» تنظیم شد`);
+};
 $('#swSound').onclick=()=>{ mon.sound=!mon.sound; $('#swSound').classList.toggle('on',mon.sound); $('#swSound').setAttribute('aria-checked', mon.sound?'true':'false'); monSave(); if(mon.sound) beep(); toast(mon.sound?'🔊 هشدار صوتی فعال شد':'🔇 هشدار صوتی خاموش شد'); };
 $('#swSound').onkeydown=e=>{ if(e.key==='Enter'||e.key===' ') { e.preventDefault(); $('#swSound').click(); } };
 $('#swNotif').onclick=async()=>{ if(!mon.notif){ try{ const p2=await Notification.requestPermission(); mon.notif=(p2==='granted'); if(!mon.notif) toast('⚠️ اجازه اعلان داده نشد'); else toast('🔔 اعلان مرورگر فعال شد'); }catch(e){ toast('⚠️ مرورگر از اعلان پشتیبانی نمی‌کند'); } } else { mon.notif=false; toast('🔕 اعلان مرورگر خاموش شد'); } $('#swNotif').classList.toggle('on',mon.notif); $('#swNotif').setAttribute('aria-checked', mon.notif?'true':'false'); monSave(); };
@@ -1875,6 +2279,17 @@ if('serviceWorker' in navigator && location.protocol!=='file:'){
   navigator.serviceWorker.addEventListener('controllerchange',()=>{if(controlled)location.reload();else controlled=true;});
   window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}));
 }
+/* لایه‌ی داده: پروفایل ذخیره‌شده، مصرف روز، و تاریخچه‌ی کلان را بازیابی کن.
+   هیچ‌کدام اجباری نیست؛ نبودشان فقط یعنی تحلیل روی داده‌ی پایه می‌ماند. */
+if(typeof MarketData!=='undefined'){
+  try{
+    MarketData.restoreUsage();
+    state.history = MarketData.loadHistory();
+    state.globalTrend = MarketData.globalTrend(state.history);
+    const sel=$('#mdProfile'); if(sel) sel.value=MarketData.profile();
+  }catch(e){ console.warn('market-data init', e); }
+}
+updateMdStatus();
 renderAlerts();
 renderPerf();
 syncGateUI();
