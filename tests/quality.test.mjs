@@ -16,7 +16,7 @@ assert.match(app,/CACHE_MAX_AGE_MS=6\*60\*60\*1000/);
 assert.match(app,/cache\?\.v===CACHE_VERSION/);
 assert.match(app,/new Worker\('indicator-worker\.js'\)/);
 assert.match(css,/prefers-reduced-motion/);
-assert.match(sw,/cryptobin-shell-v8/);
+assert.match(sw,/cryptobin-shell-v9/);
 /* ماژول‌های تازه باید هم در HTML و هم در پوسته‌ی Service Worker باشند، وگرنه
    نسخه‌ی آفلاین یا تحلیل با خطای «Analytics is not defined» می‌خوابد. */
 assert.match(html,/script src="analytics\.js" defer><\/script>/);

@@ -22,7 +22,7 @@
       reasons.push('داده کافی و معتبر برای دارایی مستقل وجود ندارد'); return p;
     }
     const vol=clamp(a.dvol,0.8,9)/100;
-    let entry,stop,tp1,tp2;
+    let entry,stop,tp1,tp2,lane='pullback';
     if(options.levels){
       ({entry,stop,tp1,tp2}=options.levels);
     }else{
@@ -31,15 +31,23 @@
     for(let i=3;i<series.length-3;i++){
       if(series.slice(i-3,i+4).every(v=>v<=series[i])) pivots.push(series[i]);
     }
+    /* 🔻 مسیر ادامه‌دهنده ریزش (continuation): اگر پرچم momoDown توسط موتور اصلی
+       تأیید شده باشد، نبودِ مقاومت بالای قیمت «دلیل رد» نیست — ورود در قیمت بازار
+       با بافر نوسانی بالای سقف ساختاری مجاز است (بدون پولبک، ریسک بازگشت بالاتر). */
+    const cont = a.momoDown===true && px<a.sma50 && a.sma20<a.sma50 && a.slopeH<0;
     const anchors=[a.resist,a.sma20,a.ema20,...pivots.slice(-6)].filter(v=>finite(v)&&v>=px);
-    if(!anchors.length){reasons.push('مقاومت معتبر بالای قیمت یافت نشد');return p;}
-    entry=Math.min(...anchors);
-    const ceiling=Math.min(...[a.resist,...pivots].filter(v=>finite(v)&&v>=entry));
-    stop=Math.max(entry*(1+vol),ceiling*(1+vol*0.25));
-    const supports=[a.support,a.low7].filter(v=>finite(v)&&v<entry).sort((x,y)=>y-x);
+    if(!anchors.length){
+      if(!cont){reasons.push('مقاومت معتبر بالای قیمت یافت نشد');return p;}
+      lane='continuation'; entry=px; stop=px*(1+clamp(vol*1.8,0.012,0.09));
+    }else{
+      entry=Math.min(...anchors);
+      const ceiling=Math.min(...[a.resist,...pivots].filter(v=>finite(v)&&v>=entry));
+      stop=Math.max(entry*(1+vol),ceiling*(1+vol*0.25));
+    }
+    const supports=[a.support,a.low7,a.bbLo].filter(v=>finite(v)&&v<entry).sort((x,y)=>y-x);
     tp1=supports[0]; tp2=supports.find(v=>v<tp1);
     }
-    Object.assign(p,{entry,avgEntry:entry,entryLo:entry*(1-0.002),entryHi:entry*(1+0.002),stop,tp1,tp2});
+    Object.assign(p,{entry,avgEntry:entry,entryLo:entry*(1-0.002),entryHi:entry*(1+0.002),stop,tp1,tp2,lane});
     if(![entry,stop,tp1,tp2].every(finite)||!(stop>entry&&entry>tp1&&tp1>tp2)){
       reasons.push('دو حمایت متمایز و اهداف معتبر موجود نیست'); return p;
     }
@@ -126,17 +134,46 @@
     const result={units,notional:units*p.entry,loss:units*(p.stop-p.entry),gain:units*(p.entry-p.tp1)};
     return Object.values(result).every(Number.isFinite)?result:null;
   }
-  function advance(r,px,now){
+  function advance(r,px,now,opts={}){
     if(!finite(px)||!['waiting','active'].includes(r.status))return null;
     if(r.status==='waiting'){
       if(now-r.created>=24*3600000||px>=r.stop||px<=r.tp1){r.status='cancelled';r.closed=now;return 'cancelled';}
       return null; // Activation requires a fresh, independently confirmed plan in the app.
     }
     r.last=px; r.peak=Math.max(r.peak,px);r.trough=Math.min(r.trough,px);
-    const result=px>=r.stop?'loss':px<=r.tp1?'win':now-r.opened>=7*86400000?'expired':null;
+    /* خروج پلکانی (opt-in): برخورد اول به TP1 نیمی از پوزیشن را می‌بندد و حد ضرر
+       نیمه‌ی باقی‌مانده روی ورود (سر‌به‌سر) می‌نشیند؛ ادامه تا TP2، حدِ سر‌به‌سر،
+       یا سررسید ۷ روزه. رکورد بدون پرچم ladder دقیقاً مثل v2 عمل می‌کند. */
+    const ladder=r.ladder===true||opts.ladder===true;
+    if(ladder&&!r.half&&px<=r.tp1){
+      r.half='tp1'; r.halfPx=r.tp1; r.halfT=now;
+      r.realized1=(r.fill-r.tp1)/r.fill*50;   // سهم ۵۰٪ بند‌شده در بازده کل
+      r.stop=r.entry;                          // باقی‌مانده بی‌ریسک تا TP2
+      return 'half';
+    }
+    let result=null;
+    if(px>=r.stop) result=r.half?'be':'loss';
+    else if(r.half&&px<=r.tp2) result='win';
+    else if(!r.half&&px<=r.tp1) result='win';
+    else if(now-r.opened>=7*86400000) result='expired';
     if(result){
-      r.status=result;r.closed=now;r.exit=px;r.ret=(r.fill-px)/r.fill*100;
+      r.status=result;r.closed=now;r.exit=px;
+      const rest=(r.fill-px)/r.fill*100;
+      r.ret= r.half ? r.realized1 + rest*0.5 : rest;
+      if(r.half) r.blended=true;
       r.mfe=(r.fill-r.trough)/r.fill*100;r.mae=(r.fill-r.peak)/r.fill*100;
+      /* هزینه‌ها — کارمزد رفت‌وبرگشت و فاندینگ دوره‌ی نگه‌داری. فاندینگ مثبت
+         به نفع شورت است (لانگ‌ها پرداخت می‌کنند)، منفی برعکس؛ فقط با عدد
+         معتبر اعمال می‌شود. */
+      if(Number.isFinite(r.feePct)&&r.feePct>=0){
+        const days=Math.max(0,(r.closed-(r.opened??r.created)))/864e5;
+        const fee=r.feePct*2;
+        const fr=Number.isFinite(r.fundingAnnual)?r.fundingAnnual:0;
+        const fundingPnl=fr*Math.min(7,days)/365;   // درصد، علامت‌دار از دید شورت
+        r.costPct=fee; r.fundingPnlPct=fundingPnl;
+        r.retNet=r.ret-fee+fundingPnl;
+        for(const v of [r.costPct,r.retNet])if(!Number.isFinite(v)){delete r.costPct;delete r.retNet;delete r.fundingPnlPct;break;}
+      }
     }
     return result;
   }
@@ -144,11 +181,15 @@
     if(!Array.isArray(items))return [];
     return keepRecords(items.filter(r=>{
       if(!r||r.side!=='short'||!(r.version===VERSION||LEGACY_VERSIONS.includes(r.version))||typeof r.id!=='string'||typeof r.sym!=='string')return false;
-      if(!['waiting','active','win','loss','expired','cancelled'].includes(r.status))return false;
+      if(!['waiting','active','win','loss','expired','cancelled','be','half'].includes(r.status))return false;
       if(![r.created,r.entry,r.entryLo,r.entryHi,r.stop,r.tp1,r.tp2].every(finite))return false;
-      if(!(r.stop>r.entryHi&&r.entryHi>=r.entry&&r.entry>=r.entryLo&&r.entryLo>r.tp1&&r.tp1>r.tp2))return false;
+      /* رکوردِ نیمه‌بسته حد ضررش روی ورود نشسته است؛ هندسه‌ی اصلی همان‌جا
+       «شل» می‌شود — همان را با سخت‌گیری معادل بررسی می‌کنیم. */
+      const stopOk = r.half==='tp1' ? (finite(r.stop)&&r.stop>=r.entry&&r.stop<=r.entryHi) : r.stop>r.entryHi;
+      if(!(stopOk&&r.entryHi>=r.entry&&r.entry>=r.entryLo&&r.entryLo>r.tp1&&r.tp1>r.tp2))return false;
+      if(r.half==='tp1'&&!finite(r.halfPx))return false;
       if(r.status!=='waiting'&&r.status!=='cancelled'&&![r.fill,r.opened,r.peak,r.trough,r.last].every(finite))return false;
-      if(['win','loss','expired'].includes(r.status)&&(!finite(r.closed)||!finite(r.exit)||![r.ret,r.mfe,r.mae].every(Number.isFinite)))return false;
+      if(['win','loss','expired','be'].includes(r.status)&&(!finite(r.closed)||!finite(r.exit)||![r.ret,r.mfe,r.mae].every(Number.isFinite)))return false;
       if(r.status==='cancelled'&&!finite(r.closed))return false;
       return true;
     }));

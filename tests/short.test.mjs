@@ -119,3 +119,56 @@ test('review: position refuses invalid targets and overflow',()=>{
  assert.equal(E.position({...plan(),tp1:110},{cap:1000,pct:2}),null);
  assert.equal(E.position({...plan(),entry:Number.MIN_VALUE,stop:Number.MIN_VALUE*2,tp1:Number.MIN_VALUE},{cap:1e308,pct:100}),null);
 });
+test('🔻 continuation lane: momoDown بدون مقاومت، ورود بازار با بافر نوسانی',()=>{
+  const mk=down=>{const c=coin();c.current_price=102;c.a.resist=99;c.a.ema20=101;if(down)c.a.momoDown=true;return c;};
+  const p=plan(mk(true));
+  assert.equal(p.valid,true,p.gate.reasons.join('|'));
+  assert.equal(p.state,'ready'); assert.equal(p.lane,'continuation');
+  assert.equal(p.entry,102); assert.ok(p.stop>102);
+  assert.ok(p.rr>=1.5&&p.rrNow>0&&p.tp1===95&&p.tp2===90);
+  const b=plan(mk(false));
+  assert.equal(b.state,'blocked');
+  assert.ok(b.gate.reasons.some(t=>t.includes('مقاومت')),'بدون پرچم، نبود مقاومت همان دلیل رد سابق است');
+});
+test('🪜 ladder: ۵۰٪ روی TP1، حد ضرر سر‌به‌سر، بازده ترکیبی در سه سناریو',()=>{
+  const mk=()=>({...plan(),status:'active',fill:100,entry:100,tp1:95,tp2:90,stop:101.25,opened:0,created:0,last:100,peak:100,trough:100,ladder:true});
+  const a=mk();
+  assert.equal(E.advance(a,95,1000),'half');
+  assert.equal(a.half,'tp1'); assert.equal(a.realized1,2.5); assert.equal(a.stop,100); assert.equal(a.halfPx,95);
+  assert.equal(E.advance(a,100.1,2000),'be');
+  assert.ok(Math.abs(a.ret-2.45)<1e-9,`ret=${a.ret}`);
+  const b=mk(); E.advance(b,95,1000);
+  assert.equal(E.advance(b,90,2000),'win');
+  assert.ok(Math.abs(b.ret-7.5)<1e-9,`ret=${b.ret}`); assert.equal(b.blended,true);
+  const c=mk(); E.advance(c,95,1000);
+  assert.equal(E.advance(c,94,7*86400000+1),'expired');
+  assert.ok(Math.abs(c.ret-(2.5+(6/100*100)*0.5))<1e-9,`ret=${c.ret}`);
+});
+test('🪜 بدون پرچم پلکانی، برخورد به TP1 همان بردِ کامل v2 است',()=>{
+  const r={...plan(),status:'active',fill:100,entry:100,tp1:95,tp2:90,stop:101.25,opened:0,created:0,last:100,peak:100,trough:100};
+  assert.equal(E.advance(r,94,2000),'win');
+  assert.equal(r.ret,6); assert.equal(r.half,undefined);
+});
+test('💸 خالص: کارمزد دو‌طرف کسر و فاندینگ (به نفع شورت) اضافه می‌شود؛ فاندینگ منفی جریمه است',()=>{
+  const mk=fa=>({...plan(),status:'active',fill:100,entry:100,tp1:95,tp2:90,stop:101.25,opened:0,created:0,
+    last:100,peak:100,trough:100,feePct:0.1,fundingAnnual:fa});
+  const a=mk(36.5); assert.equal(E.advance(a,94,86400000),'win');
+  assert.equal(a.costPct,0.2);
+  assert.ok(Math.abs(a.fundingPnlPct-36.5/365)<1e-12);
+  assert.ok(Math.abs(a.retNet-(6-0.2+36.5*1/365))<1e-9,`net=${a.retNet}`);
+  const b=mk(-36.5); assert.equal(E.advance(b,94,86400000),'win');
+  assert.ok(Math.abs(b.retNet-(6-0.2-36.5/365))<1e-9,`net=${b.retNet}`);
+  const longHold=mk(36.5); longHold.opened=0; assert.equal(E.advance(longHold,99.5,8*86400000),'expired');
+  assert.ok(Math.abs(longHold.fundingPnlPct-36.5*7/365)<1e-12,'فاندینگ روی ۷ روز سقف می‌خورد');
+});
+test('🗄️ restore: وضعیت‌های be/half پذیرفته و هندسه نیمه‌بسته سخت بررسی می‌شود',()=>{
+  const now=Date.now();
+  const base={id:'x',sym:'X',side:'short',version:'short-pullback-v2',created:now-7200e3,opened:now-7200e3,
+    entry:100,entryLo:99.8,entryHi:100.2,fill:100,peak:100,trough:95,last:96,tp1:95,tp2:90,half:'tp1',halfPx:95,halfT:now-3600e3,realized1:2.5};
+  const ok={...base,status:'be',stop:100,closed:now,exit:100.1,ret:2.45,mfe:5,mae:0};
+  assert.equal(E.restoreRecords([ok]).length,1);
+  assert.equal(E.restoreRecords([{...ok,stop:103}]).length,0,'حدِ یک رکورد نیمه‌بسته نمی‌تواند بالای entryHi باشد');
+  assert.equal(E.restoreRecords([{...ok,halfPx:undefined}]).length,0,'نیمه‌بسته بدون halfPx معتبر نیست');
+  const live={...base,status:'half',stop:100};
+  assert.equal(E.restoreRecords([live]).length,1,'نیمه‌بسته‌ی در جریان باید زنده بماند');
+});
