@@ -18,7 +18,7 @@ export const DEFAULT_EXPORTS='state,gate,mon,perf,REGIMES,GATE_STATES,GATE_RULES
   +'syncGateUI,loadAll,setMon,shorts,shortCycle,updateShortPlans,renderShorts,exportShortCSV,shortCoinFresh,shortOptions,shortFresh,shortFreshKey,refreshModal,tick,pushAlert,marketRows,analyze,computeIndicatorsInWorker,'
   +'renderFNG,fngValue,buildSignalPayload,setSide,sideView,sideCounts,renderDual,renderSideTabs,renderApiPreview,SIGNAL_SCHEMA_VERSION,'
   +'deriveMarketData,enrichmentCandidates,refreshDerivatives,runEnrichment,attachCachedMarketData,mdStatusText,enrichCycle,updateMdStatus,'
-  +'Analytics,MarketData,CROWD';
+  +'Analytics,MarketData,CROWD,ShortEngine,openReplay,replayControl,stopReplay,renderReplayBar,findReplayRec,replayKindFor,regimeCommit,fnv1a,gapSectionHtml,openModal';
 
 function ctx2d(){
   const noop=()=>{};

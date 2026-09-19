@@ -471,13 +471,29 @@
   .api-note code{background:rgba(255,255,255,.07);border-radius:5px;padding:1px 5px;direction:ltr;display:inline-block}
 
 /* Independent short research workspace */
+.muted { color:var(--muted); }
 .short-warning { color:var(--muted); line-height:1.9; font-size:.8rem; margin:12px 0; }
 .short-controls { display:flex; flex-wrap:wrap; gap:16px; align-items:center; }
 .short-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,310px),1fr)); gap:12px; max-height:650px; overflow:auto; margin:16px 0; }
 .short-card { border:1px solid #fb718544; border-radius:14px; padding:16px; background:linear-gradient(135deg,#fb71850b,transparent); font-size:.8rem; line-height:1.9; }
 .short-card h3 { margin:0 0 8px; }.short-card p { margin:8px 0; }
+.short-card .score-bar { margin:4px 0 8px; }
 .short-table { overflow:auto; }.short-table table { width:100%; white-space:nowrap; }
 #shortFresh { color:var(--muted); font-size:.8rem; }
+/* پیل وضعیت و هدر قیمت — هم‌ارز گرافیکی با کارت‌های لانگ */
+.ss-head { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:4px; }
+.ss-head b { font-size:.86rem; }
+.ss-price { display:flex; align-items:center; gap:8px; font-size:.76rem; color:var(--muted); flex-wrap:wrap; margin:2px 0 6px; }
+.ss-price b { color:var(--text); font-size:.9rem; font-variant-numeric:tabular-nums; }
+.sspill { font-size:.68rem; font-weight:800; padding:3px 10px; border-radius:999px; white-space:nowrap; }
+.ss-ready  { background:rgba(251,113,133,.16); color:var(--sell); }
+.ss-wait   { background:rgba(251,191,36,.14); color:var(--pot); }
+.ss-block  { background:rgba(148,163,184,.12); color:var(--hold); }
+/* در شورت، «ورود» سِمتِ فروش است: کادر سبزِ لانگ اینجا فیروزه‌ای می‌شود، حدضرر بالا و هدف‌ها پایین */
+.tri .sentry { background:rgba(0,212,255,.10); } .tri .sentry b { color:var(--accent2); }
+/* 🚀 بنر مسیر مومنتوم در مودال */
+.momoline { margin-top:7px; font-size:.72rem; line-height:1.85; color:#7ef0c4;
+  background:rgba(0,230,118,.06); border:1px dashed rgba(0,230,118,.35); border-radius:10px; padding:7px 10px; }
 
 /* Enriched data layer: quality badge, funding/crowding rows and budget status */
 .mdq { display:inline-block; margin-inline-start:6px; padding:1px 7px; border-radius:999px; font-size:.66rem; font-weight:700; border:1px solid transparent; }
@@ -486,3 +502,30 @@
 .mdq.base { background:#94a3b81f; color:var(--muted); border-color:#94a3b844; font-weight:500; }
 .md-status-row { align-items:flex-start; }
 .md-status { font-size:.68rem; font-weight:400; color:var(--muted); max-width:62%; text-align:start; line-height:1.7; }
+
+/* ---------- 🪜/📏/🔁 شکاف تا مجوز، بازپخش کارنامه، پلکان ---------- */
+.gap-sec { margin-top:10px; padding-top:8px; border-top:1px dashed var(--line,#243044); }
+.gap-rows { display:flex; flex-direction:column; gap:5px; margin-top:6px; }
+.gap-row { display:flex; align-items:center; gap:8px; padding:5px 8px; border-radius:10px; background:#0e1626; cursor:pointer; border:1px solid transparent; }
+.gap-row:hover,.gap-row:focus-visible { border-color:#2a3a55; }
+.gap-row img { width:16px;height:16px;border-radius:50%; }
+.gap-row .sym { font-size:.74rem; font-weight:800; min-width:44px; }
+.gap-bar { flex:1; max-width:150px; height:7px; border-radius:99px; background:#1b2740; overflow:hidden; }
+.gap-bar span { display:block; height:100%; border-radius:99px; background:linear-gradient(90deg,#f59e0b,#22c55e); }
+.gap-items { display:flex; gap:4px; flex-wrap:wrap; }
+.gap-item { font-size:.66rem; padding:1px 7px; border-radius:99px; border:1px solid; }
+.gap-item.ok { color:var(--up,#00e676); border-color:#00e67644; background:#00e67617; }
+.gap-item.bad { color:#fb7185; border-color:#fb718544; background:#fb718517; }
+.replaybar { margin-top:8px; }
+.replaybar .rp-row { display:flex; align-items:center; gap:7px; flex-wrap:wrap; background:#141b30; border:1px solid #2a3a55; padding:6px 10px; border-radius:12px; font-size:.74rem; }
+.replaybar .rp-row>b { color:#c4b5fd; }
+.replaybar button,.replaybar select { background:#1d2742; color:var(--fg,#e6ebf5); border:1px solid #334366; border-radius:8px; padding:3px 9px; font:inherit; font-size:.72rem; cursor:pointer; }
+.replaybar button:hover { border-color:#7c5cff; }
+.replaybar .rp-play { min-width:64px; }
+.replaybar input[type=range] { flex:1; min-width:90px; accent-color:#7c5cff; }
+.replaybar .rp-info { color:var(--muted,#94a3b8); font-size:.68rem; }
+.rp-mini { background:none; border:1px solid #2a3a55; border-radius:8px; color:#c4b5fd; font-size:.72rem; padding:2px 7px; cursor:pointer; }
+.rp-mini:hover { border-color:#7c5cff; }
+.res .rp-mini { align-self:center; }
+.lane-note { font-size:.72rem; color:#fb7185; margin:3px 0; }
+#shortHistory td .muted { font-size:.66rem; }

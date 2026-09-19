@@ -172,6 +172,25 @@ test('کارنامه‌ی عملکرد: فقط سیگنال دارای مجوز 
   assert.equal(api.perf.rec.some(r=>r.id===blocked.id), true, 'در حالت خاموش باید سیگنال ثبت شود');
 });
 
+test('🚀 مسیر مومنتوم: فقط برای ادامه‌روندهای سالم — آستانه‌های تعدیل‌شده و تعقیبِ بی‌روند ممنوع',async()=>{
+  const {api}=boot('riskon');await settled(api);
+  // در این سناریو لینک پارابولیک است (RSI>۸۵) ⇒ مسیر نباید روشن شود
+  const link=api.state.coins.find(c=>c.id==='chainlink');
+  assert.notEqual(link.a.momo,true,'RSI اشباع نباید مجوز تعقیب قیمت بگیرد');
+  // یک ارزی که فقط با تعدیل‌های مسیر از دروازه عبور می‌کند
+  const c=api.state.coins.find(x=>x.id!=='bitcoin'&&x.a.ok&&api.trd(x)&&!x.a.momo);
+  c.a.momo=true; c.a.buyState='no'; c.a.entryGap=-9;
+  const rules=api.GATE_RULES[api.state.gate.macro];
+  const g=api.evalCoinGate(c,api.state.gate);
+  assert.equal(g.momo,true,'پرچم مسیر در خروجی دروازه نیست');
+  assert.equal(g.need.score,rules.score-4,'آستانه امتیاز باید دقیقاً ۴ واحد تعدیل شود');
+  assert.equal(g.need.rrNow,Math.max(0.55,rules.rrNow-0.35),'آستانه R/R باید ۰٫۳۵ واحد تعدیل شود');
+  assert.ok(g.need.states.includes('no'),'«فاصله زیاد» با تأیید مومنتوم قابل‌تحمل است (ورود از پلکان)');
+  c.a.momo=false;
+  const g3=api.evalCoinGate(c,api.state.gate);
+  assert.ok(!g3.need.states.includes('no'),'بدون مسیر مومنتوم، تعقیب قیمت مجاز نیست');
+});
+
 test('خروجی CSV: ستون دروازه با تعداد ستون‌های سرستون می‌خواند', async ()=>{
   const {api, getCsv}=boot('riskon'); await settled(api);
   api.exportCSV();
@@ -232,6 +251,20 @@ test('شورت: انتظار، ورود تأییدشده، سطوح ثابت، �
  assert.ok(api.mon.alerts.some(a=>a.kind==='short'));
  assert.equal(api.shorts.records.length,1);
 });
+test('شورت v2: پرش قیمت از باند = اجرای بهتر با قیمت زنده، نه ابطال',async()=>{
+ const {api,c}=await shortFixture();api.shortCycle();const r=api.shorts.records[0];
+ // باند ورود ۰٫۴٪ است؛ اگر قیمت بین دو چرخه از سقف باند بپرد، شورت باید در
+ // قیمتِ «بهتر» فعال شود (فروش گران‌تر = سود بیشتر)، نه باطل.
+ c.current_price=100.15;api.shortCycle();
+ assert.equal(r.status,'active','پرش از باند باید با قیمت بهتر اجرا شود');
+ assert.equal(r.fill,100.15);
+});
+test('شورت v2: تبدیل پولبک به شکست قدرتمند، ستاپ منتظر را باطل می‌کند',async()=>{
+ const {api,c}=await shortFixture();api.shortCycle();const r=api.shorts.records[0];
+ Object.assign(c.a,{macd:2,sig:1,hist:0.8,histPrev:0.2,rsi:70,rsiPrev:66});
+ c.current_price=100;api.shortCycle();
+ assert.equal(r.status,'cancelled','بازگشت قدرتمند باید ستاپ منتظر را بکشد');
+});
 test('شورت: آفلاین، تاریخ منبع کهنه و تعارض لانگ مانع ورود می‌شوند',async()=>{
  const {api,c}=await shortFixture();api.state.liveData=false;api.shortCycle();assert.equal(api.shorts.records.length,0);
  api.state.liveData=true;c.last_updated=new Date(Date.now()-3600000).toISOString();api.shortCycle();assert.equal(api.shorts.records.length,0);
@@ -243,16 +276,18 @@ test('شورت: پیش‌فرض خاموش، CSV جهت‌دار و نمایش �
  const initial=boot('riskoff');await settled(initial.api);assert.equal(initial.api.shorts.enabled,false);
  const {api,c,getCsv,store}=await shortFixture();api.shortCycle();api.renderShorts();api.renderModalInfo(c);
  assert.match(document_el('mshort').innerHTML,/شورت/);assert.match(document_el('shortPanel').innerHTML,/منتظر پولبک/);
- api.exportShortCSV();assert.match(getCsv(),/"side","version"/);assert.match(getCsv(),/short-pullback-v1/);
+ api.exportShortCSV();assert.match(getCsv(),/"side","version"/);assert.match(getCsv(),/short-pullback-v2/);
  assert.equal(JSON.parse(store.getItem('cb_short_v1')).records[0].side,'short');
 });
 
 
-test('بازبینی: ورود منتظر بر اساس سطوح ثابت، نه اهداف جابه‌جاشده',async()=>{
- const {api,c}=await shortFixture();api.shortCycle();const r=api.shorts.records[0];
- c.current_price=100;c.a.support=90;c.a.low7=90;api.shortCycle();
- assert.equal(c.a.plans.short.valid,false);assert.equal(r.status,'active');assert.equal(r.tp1,95);assert.equal(r.stop,101.2525);
-});
+ test('بازبینی: ورود منتظر بر اساس سطوح ثابت، نه اهداف جابه‌جاشده',async()=>{
+  const {api,c}=await shortFixture();api.shortCycle();const r=api.shorts.records[0];
+  c.current_price=100;c.a.support=90;c.a.low7=90;api.shortCycle();
+  // پلن زنده با حمایت‌های تازه (حالا BB-Lo هم منبع حمایت است) جابه‌جا می‌شود،
+  // اما رکورد ثبت‌شده باید روی سطوح منجمد بماند — همین نقطه‌ی آزمون است.
+  assert.notEqual(c.a.plans.short.tp1,r.tp1);assert.equal(r.status,'active');assert.equal(r.tp1,95);assert.equal(r.stop,101.2525);
+ });
 test('بازبینی: ثبت خرید قوی نیز با شورت تعارض دارد، حتی زیر امتیاز ۷۸',async()=>{
  const {api,c}=await shortFixture();c.a.cat='sbuy';c.a.buyScore=70;c.a.tp1=110;c.a.stop=90;c.a.gate={state:'open'};
  api.shortCycle();assert.equal(api.shorts.records.length,0);
@@ -403,7 +438,7 @@ test('خروجی JSON در بازار ریزشی: شورت‌ها با نسخه�
   const p=api.buildSignalPayload({side:'short',filter:'all'});
   p.signals.forEach(s=>{
     assert.equal(s.side,'short');
-    assert.equal(s.strategyVersion,'short-pullback-v1','نسخه‌ی استراتژی شورت نادرست است');
+    assert.equal(s.strategyVersion,'short-pullback-v2','نسخه‌ی استراتژی شورت نادرست است');
     if(s.valid){
       assert.ok(s.exit.stop>s.entry.best,'در شورت حد ضرر باید بالای ورود باشد');
       assert.ok(s.exit.tp1<s.entry.best&&s.exit.tp2<s.exit.tp1,'ترتیب اهداف شورت نادرست است');
@@ -577,6 +612,139 @@ test('رگرسیون: نبود ماژول‌های لایه‌ی داده برن
     assert.ok(btc.a.gate&&btc.a.gate.state,'دروازه باید کار کند');
     assert.ok(api.state.coins.length>5,`تحلیل باید ادامه پیدا کند (${api.state.coins.length} ارز)`);
   }
+});
+
+/* ------------------------- دور سوم: هیزتریس، هزینه‌ها، پلکان، بازپخش ------------------------- */
+test('🧲 هیزتریس رژیم: پرش یک‌چرخه‌ای جهت را عوض نمی‌کند؛ چرخه‌ی دوم قطعی',()=>{
+  const H={at:null,pendingK:null,pending:0,eff:null}, st={regime:null,dataAt:0};
+  const commit=k=>{const dt=st.dataAt;
+    if(H.at===dt&&H.eff!=null)return H.eff;
+    H.at=dt;
+    if(!st.regime){H.eff=k;H.pendingK=null;H.pending=0;return k;}
+    const cur=st.regime.k;
+    if(k===cur){H.eff=cur;H.pendingK=null;H.pending=0;return cur;}
+    if(H.pendingK===k&&H.pending>=1){H.eff=k;H.pendingK=null;H.pending=0;return k;}
+    H.pendingK=k;H.pending=1;H.eff=cur;return cur;};
+  st.dataAt=1; assert.equal(commit('riskon'),'riskon','چرخه‌ی نخست باید همان جهت را بپذیرد'); st.regime={k:'riskon'};
+  assert.equal(commit('riskon'),'riskon'); st.dataAt=2;
+  assert.equal(commit('riskoff'),'riskon','نمونه‌ی اولِ تغییر جهت نباید رژیم را عوض کند');
+  assert.equal(commit('riskoff'),'riskon','فراخوان دوباره در همان چرخه شمارش را جلو نمی‌برد');
+  st.dataAt=3; assert.equal(commit('riskoff'),'riskoff','تأیید در چرخه‌ی دوم تغییر را قطعی می‌کند');
+  st.regime={k:'riskoff'}; st.dataAt=4;
+  assert.equal(commit('riskon'),'riskoff','بازگشت هم مثل رفت، با یک نمونه انجام نمی‌شود');
+  st.dataAt=5; assert.equal(commit('riskon'),'riskon');
+});
+test('🧲 هیزتریس زنده: رژیم boot شده با چرخش لحظه‌ی داده تثبیت می‌ماند',async()=>{
+  const {api}=boot('riskon'); await settled(api);
+  assert.equal(api.state.regime.k,'riskon');
+  api.applyMarketContext();
+  assert.equal(api.state.regime.k,'riskon','چرخه‌ی دوباره در همان داده نباید چیزی را عوض کند');
+  assert.equal(api.state.regime.pendingSwitch,null);
+});
+test('🔻 ادامه‌دهنده ریزش: رکورد با لانگ continuation و بدون نیاز به پولبک',async()=>{
+  const {api,c}=await shortFixture();
+  c.current_price=102; c.a.resist=99; c.a.momoDown=true;
+  api.shortCycle();
+  const r=api.shorts.records.find(x=>x.id==='solana');
+  assert.ok(r,'شورت ادامه‌روند ثبت نشد');
+  assert.equal(r.lane,'continuation'); assert.equal(r.status,'active'); assert.equal(r.fill,102);
+  assert.ok(r.stop>102&&r.tp1===95&&r.tp2===90,`هندسه: stop=${r.stop} tp1=${r.tp1} tp2=${r.tp2}`);
+  const t=await shortFixture();
+  t.c.current_price=102; t.c.a.resist=99; t.c.a.momoDown=false;
+  t.api.shortCycle();
+  assert.equal(t.c.a.plans.short.state,'blocked','بدون پرچم، نبودِ مقاومت همان‌طور سابق دلیل رد است');
+  assert.ok(t.c.a.plans.short.gate.reasons.some(x=>x.includes('مقاومت')));
+});
+test('🪜 خروج پلکانی زنده: نصف روی هدف، حد ضرر سر‌به‌سر، هشدار و برچسب وضعیت',async()=>{
+  const store=makeStorage();
+  store.setItem('cb_short_v1',JSON.stringify({enabled:true,ladder:true,records:[]}));
+  store.setItem('cb_risk',JSON.stringify({cap:1000,pct:2,feePct:0.1}));
+  const booted=boot('riskoff',{},store); await settled(booted.api);
+  const api=booted.api,c=api.state.coins.find(x=>x.id==='solana');
+  Object.assign(c,{current_price:99});
+  Object.assign(c.a,{ok:true,kind:'asset',prices:[],sma20:100,sma50:110,ema20:101,support:95,resist:101,low7:90,dvol:1,slopeH:-0.2,macd:-2,sig:-1,hist:-1,histPrev:-0.5,rsi:45,rsiPrev:46,rs7:-2,volRatio:0.1,ch24:-2,buyScore:0,buyState:'wait'});
+  api.state.coins=[c,api.state.coins.find(x=>x.id==='bitcoin')];
+  api.state.regime={k:'riskoff',fng:40,btcAvailable:true};
+  api.state.liveData=true; api.state.dataAt=Date.now(); api.perf.rec=[]; api.shorts.enabled=true;
+  assert.equal(api.shorts.ladder,true,'تنظیم پلکانی از حافظه بازگردانی نشد');
+  api.shortCycle();
+  const r=api.shorts.records.find(x=>x.id==='solana');
+  c.current_price=100; api.shortCycle();
+  assert.equal(r.status,'active'); assert.equal(r.ladder,true); assert.equal(r.feePct,0.1,'کارمزد لحظه‌ی ثبت روی رکورد یخ نمی‌زند');
+  c.current_price=95; api.shortCycle();
+  assert.equal(r.half,'tp1','برخورد به هدف اول باید نصف را ببندد');
+  assert.equal(r.stop,r.entry,'حد ضرر نیمه‌ی باقی‌مانده روی ورود می‌نشیند');
+  assert.ok(api.mon.alerts.some(a=>a.kind==='short'&&a.text.includes('۵۰٪')));
+  c.current_price=100.1; api.shortCycle();
+  assert.equal(r.status,'be');
+  assert.ok(Math.abs(r.ret-2.45)<1e-9,`ret=${r.ret}`);
+  assert.ok(Math.abs(r.retNet-2.25)<1e-9,`retNet=${r.retNet} (انتظار 2.45−0.2 کارمزد)`);
+  assert.ok(els.get('#shortStats').textContent.includes('پلکانی'));
+});
+test('💸 بازده خالص شورت حتی با داده‌ی فاندینگِ نامعتبر محاسبه می‌شود',async()=>{
+  const {api,c}=await shortFixture();
+  const r={id:'solana',sym:'SOL',side:'short',version:'short-pullback-v2',status:'active',created:0,opened:Date.now()-3600e3,
+    entry:100,entryLo:99.8,entryHi:100.2,fill:100,stop:101.2525,tp1:95,tp2:90,peak:100,trough:100,last:100,fundingAnnual:null,feePct:0.05};
+  api.shorts.records.push(r);
+  c.current_price=94; api.shortCycle();
+  assert.equal(r.status,'win'); assert.equal(r.ret,6); assert.equal(r.costPct,0.1);
+  assert.ok(Math.abs(r.retNet-5.9)<1e-6,`retNet=${r.retNet}`);
+});
+test('📏 «چقدر تا مجوز»: فاصله‌ی عددی هر شرط + رندر میله‌ها',async()=>{
+  const {api}=boot('riskoff'); await settled(api);
+  const cs=api.state.coins.filter(c=>c.a&&c.a.gate&&!c.a.gate.exempt&&c.a.gate.need&&c.a.gate.state!=='open');
+  assert.ok(cs.length>=2,'آزمون به ارز مسدود/انتخابی نیاز دارد');
+  for(const c of cs){
+    const g=c.a.gate.gap;
+    assert.ok(g&&[g.score,g.rr,g.rs,g.state,g.liq].every(Number.isFinite),'فاصله‌ها باید عددی باشند');
+    if(g.score>0) assert.ok(c.a.buyScore<c.a.gate.need.score,'امتیاز زیر آستانه باید فاصله مثبت بدهد');
+    if(c.a.gate.state==='open') assert.fail('این فهرست نباید ارز مجاز داشته باشد');
+    assert.ok(Number.isFinite(c.a.gate.closeness)&&c.a.gate.closeness>=0&&c.a.gate.closeness<=100);
+  }
+  const html=api.gapSectionHtml(api.state.coins);
+  assert.ok(html.includes('چقدر تا مجوز')&&html.includes('gap-bar'),'میله‌های پیشرفت رندر نشد');
+});
+test('🔁 بازپخش کارنامه روی نمودار: پنجره، گام دستی، اسکراب و پاک‌سازی',async()=>{
+  const {api}=boot('riskon'); await settled(api);
+  const c=api.state.coins.find(x=>x.a&&x.a.prices&&x.a.prices.length>10)||api.state.coins[0];
+  const now=Date.now();
+  api.perf.rec.push({side:'long',version:'legacy-long-v1',id:c.id,sym:c.symbol.toUpperCase(),name:c.name,img:'',
+    t0:now-2*3600e3,t1:now-3600e3,p0:1,entry:1,tp1:1.1,stop:0.9,open:false,result:'win',ret:5});
+  assert.equal(api.replayKindFor(c.id),'long');
+  const rec=api.findReplayRec('long',c.id);
+  assert.equal(rec.entry,1); assert.ok(rec.t1-rec.t0>=3600e3,'بازه‌ی بازپخش حداقل یک ساعت است');
+  await api.openReplay('long',c.id);
+  const rp=api.state.replay;
+  assert.ok(rp,'حالت بازپخش ساخته نشد'); assert.equal(rp.on,false);
+  assert.ok(rp.hi-rp.lo>=1,'پنجره‌ی رکورد باید حداقل دو کندل ساعتی باشد');
+  api.replayControl('fwd'); assert.equal(rp.i,rp.lo+1);
+  api.replayControl('speed','16'); assert.equal(rp.speed,16);
+  api.replayControl('play'); assert.equal(rp.on,true);
+  const bar=els.get('#replayBar').innerHTML;
+  assert.ok(bar.includes('بازپخش')&&bar.includes('data-rp="seek"')&&bar.includes('data-rp="speed"'),'نوار بازپخش رندر نشد');
+  api.replayControl('seek',String(rp.hi)); assert.equal(rp.i,rp.hi);
+  api.stopReplay(); assert.equal(api.state.replay,null);
+  await api.openReplay('short',c.id); assert.equal(api.state.replay,null,'بی‌رکورد نباید بازپخش بسازد');
+});
+test('🔐 بدنه‌ی خروجی JSON چک‌سم FNV-1a هشت‌ رقمی دارد و با همان ورودی بازتولید می‌شود',async()=>{
+  const {api}=boot('riskon'); await settled(api);
+  const p=api.buildSignalPayload({side:'both',filter:'all'});
+  assert.match(p.checksum,/^[0-9a-f]{8}$/);
+  assert.equal(api.fnv1a(JSON.stringify({generatedAt:p.generatedAt,count:p.count,signals:p.signals})),p.checksum);
+  const p2=api.buildSignalPayload({side:'long',filter:'approved'});
+  assert.notEqual(p2.checksum,undefined);
+});
+test('🗄️ ریکاوری: رکورد نیمه‌بسته/سر‌به‌سر زنده می‌ماند و تاریخچه بازمی‌گردد',async()=>{
+  const {api}=boot('riskon'); await settled(api);
+  const now=Date.now();
+  const half={id:'a',sym:'AAA',side:'short',version:'short-pullback-v2',status:'half',half:'tp1',halfPx:95,halfT:now-3600e3,
+    created:now-7200e3,opened:now-7200e3,entry:100,entryLo:99.8,entryHi:100.2,fill:100,stop:100,tp1:95,tp2:90,
+    peak:100,trough:95,last:96,realized1:2.5};
+  const be={...half,status:'be',closed:now,exit:100.1,ret:2.45,mfe:5,mae:0};
+  const live=api.ShortEngine.restoreRecords([half]);
+  assert.equal(live.length,1); assert.equal(live[0].status,'half','نیمه‌بسته هنوز باز است و باید زنده بماند');
+  const hist=api.ShortEngine.restoreRecords([be]);
+  assert.equal(hist.length,1); assert.equal(hist[0].ret,2.45);
 });
 
 /* ------------------------- اجرا ------------------------- */

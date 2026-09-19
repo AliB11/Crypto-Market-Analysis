@@ -144,9 +144,10 @@
   <!-- Independent short research workspace -->
   <section id="shortSec" role="tabpanel" aria-labelledby="tabShort" data-tab="short">
     <div class="sec-title"><span class="bar"></span>🔻 فرصت‌های شورت — آزمایشی</div>
-    <p class="short-warning">استراتژی ادامه نزول پس از پولبک • بدون سفارش، اهرم و تضمین امکان شورت در صرافی. هزینه، فاندینگ و لیکوییدیشن محاسبه نمی‌شوند. بخش‌های «بهترین خرید» و کارنامه اصلی همچنان مخصوص لانگ هستند.</p>
+    <p class="short-warning">استراتژی ادامه نزول پس از پولبک (به‌علاوه مسیر 🔻 ادامه‌دهنده ریزش) • بدون سفارش، اهرم و تضمین امکان شورت در صرافی. کارمزد دو طرف و فاندینگ دوره از «بازده خالص» کم می‌شوند؛ لیکوییدیشن و هزینه وام محاسبه نمی‌شوند. بخش‌های «بهترین خرید» و کارنامه اصلی همچنان مخصوص لانگ هستند.</p>
     <div class="short-controls">
       <label><input type="checkbox" id="shortEnabled"> ثبت و هشدار آزمایشی شورت (اختیاری)</label>
+      <label title="نصف پوزیشن روی هدف اول بسته می‌شود و حد ضرر باقی‌مانده روی قیمت ورود (سر‌به‌سر) می‌نشیند"><input type="checkbox" id="shortLadder"> 🪜 خروج پلکانی (هدف ۱ → سر‌به‌سر تا هدف ۲)</label>
       <label>فرصت‌ها <select id="shortFilter" class="sel"><option value="all">همه، همراه دلیل رد</option><option value="approved">آماده / منتظر پولبک</option></select></label>
       <button id="shortCSV">خروجی CSV شورت</button>
     </div>
@@ -154,7 +155,7 @@
     <div id="shortPanel" class="short-grid"></div>
     <h3 id="shortStats">کارنامه مستقل شورت</h3>
     <p class="short-warning">کارنامه بر پایه قیمت‌های مشاهده‌شده هنگام پایش مرورگر است، نه بک‌تست یا اجرای واقعی. عبور بین دو بروزرسانی ممکن است دیده نشود. سطوح پس از ثبت ثابت می‌مانند؛ توقف ثبت جدید، معاملات فعال را حذف نمی‌کند.</p>
-    <div class="short-table"><table><thead><tr><th>دارایی / جهت</th><th>وضعیت</th><th>ورود</th><th>حد ضرر</th><th>هدف اول</th><th>بازده ناخالص</th></tr></thead><tbody id="shortHistory"></tbody></table></div>
+    <div class="short-table"><table><thead><tr><th>دارایی / جهت</th><th>وضعیت</th><th>ورود</th><th>حد ضرر</th><th>هدف اول</th><th>بازده ناخالص / خالص</th><th>بازپخش</th></tr></thead><tbody id="shortHistory"></tbody></table></div>
   </section>
 
   <section id="perfSec" role="tabpanel" aria-labelledby="tabLong" data-tab="long">
@@ -302,10 +303,12 @@
       <label><input type="checkbox" id="ovSma20" checked> SMA20</label>
       <label><input type="checkbox" id="ovSma50" checked> SMA50</label>
       <label><input type="checkbox" id="ovBB" checked> بولینگر</label>
-      <label><input type="checkbox" id="ovShort"> سطوح تحلیلی شورت (۷ روزه)</label>
+      <label><input type="checkbox" id="ovPlan" checked> سطوح پلن لانگ</label>
+      <label><input type="checkbox" id="ovShort" checked> سطوح پلن شورت</label>
       <label><input type="checkbox" id="ovPred" checked> پیش‌بینی</label>
     </div>
     <div class="chart-box"><canvas id="mainChart" height="320" aria-label="نمودار قیمت"></canvas><div class="tip" id="tip" role="tooltip"></div></div>
+    <div class="replaybar" id="replayBar" style="display:none" role="region" aria-label="بازپخش رکورد کارنامه"></div>
     <div class="chart-box" style="margin-top:8px"><canvas id="rsiChart" height="90" aria-label="نمودار RSI"></canvas></div>
     <div class="chart-box" style="margin-top:8px"><canvas id="macdChart" height="90" aria-label="نمودار MACD"></canvas></div>
     <div class="mgrid">

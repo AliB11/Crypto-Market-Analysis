@@ -58,6 +58,20 @@ const REGIMES = {
   riskoff: {k:'riskoff',label:'ریسک‌گریز (Risk-Off)', icon:'🔴', c:'#ef4444', adj:-7, hint:'بیت‌کوین در ساختار نزولی — اکثر آلت‌کوین‌ها با بتای بالا سقوط می‌کنند؛ حجم را کم و حد ضرر را سفت کنید.'}
 };
 
+/* هیزتریس رژیم — تغییر جهت با تأیید دو چرخه‌ی متوالی. فراخوان‌های دوباره در
+   یک چرخه‌ی داده (مثلاً پس از غنی‌سازی) شمارش را جلو نمی‌برند. */
+const regimeHyst={at:null, pendingK:null, pending:0, eff:null};
+function regimeCommit(rawK){
+  const H=regimeHyst, dt=state.dataAt||0;
+  if(H.at===dt && H.eff!=null) return H.eff;
+  H.at=dt;
+  if(!state.regime){ H.eff=rawK; H.pendingK=null; H.pending=0; return rawK; }
+  const cur=state.regime.k;
+  if(rawK===cur){ H.eff=cur; H.pendingK=null; H.pending=0; return cur; }
+  if(H.pendingK===rawK && H.pending>=1){ H.eff=rawK; H.pendingK=null; H.pending=0; return rawK; }
+  H.pendingK=rawK; H.pending=1; H.eff=cur; return cur;
+}
+
 /* =====================================================================
    لایه‌ی سوم تحلیل: دروازه‌ی رژیم (Regime Gateway) — بهبود یافته
    ===================================================================== */
@@ -121,8 +135,16 @@ function evalCoinGate(c, mkt){
   }
   const rules=GATE_RULES[(mkt&&mkt.macro)||'watch'];
   const st = gate.mode==='strict' ? GATE_STRICT : {score:0, rrNow:0, rs7:0};
-  const need={ score:rules.score+st.score, rrNow:rules.rrNow+st.rrNow, rs7:rules.rs7+st.rs7, states:rules.states };
+  /* 🚀 مسیر مومنتوم: برای ادامه‌روندهای تأییدشده (a.momo) آستانه‌ها چند واحد
+     تعدیل می‌شوند و وضعیت «فاصله زیاد تا ورود» قابل‌تحمل است — چون ورود از
+     پولبک پلکانی انجام می‌شود نه تعقیب قیمت. حذف این تعدیل، سیگنال‌های رشد بازار
+     را در حالت بازگشت‌به‌میانگینِ موتور خفه می‌کرد. */
+  const momo = a.momo===true;
+  const need={ score:rules.score+st.score-(momo?4:0),
+    rrNow:Math.max(0.55, rules.rrNow+st.rrNow-(momo?0.35:0)),
+    rs7:rules.rs7+st.rs7, states:momo&&a.entryGap>-12?[...rules.states,'no']:rules.states };
   out.need=need;
+  out.momo=momo;
   const isBtc = c.id==='bitcoin';
   out.rsExempt = isBtc;
   if(a.buyScore<need.score)  out.fails.push(`امتیاز فرصت خرید ${a.buyScore} کمتر از آستانه‌ی ${need.score}`);
@@ -136,9 +158,27 @@ function evalCoinGate(c, mkt){
     out.fails.push(`${a.crowd.reason} — ورود تازه در اوج اهرم توصیه نمی‌شود`);
   }
 
+  /* «چقدر تا مجوز» — فاصله‌ی عددیِ هر شرط (صفر = برقرار). نسخه‌ی متنیِ دلایل
+     برای آدم است؛ این آرایه برای میله‌ی پیشرفت در نوار سیگنال‌ها. */
+  out.gap={
+    score:Math.max(0, Math.round(need.score-a.buyScore)),
+    rr:Math.max(0, +(need.rrNow-a.rrNow).toFixed(2)),
+    rs:(!isBtc&&Number.isFinite(a.rs7))?Math.max(0, +(need.rs7-a.rs7).toFixed(2)):0,
+    state:need.states.includes(a.buyState)?0:1,
+    liq:isFinite(a.volRatio)&&a.volRatio>=0.008?0:1,
+    crowd:(a.crowd&&a.crowd.side==='long'&&a.crowd.level==='hot')?1:0
+  };
+  out.closeness=Math.round(100*[
+    clamp(need.score>0?a.buyScore/need.score:1,0,1),
+    clamp(need.rrNow>0?a.rrNow/need.rrNow:1,0,1),
+    need.rs7<=0?(isBtc||a.rs7>=need.rs7?1:0.5):clamp(1-out.gap.rs/10,0.2,1),
+    out.gap.state?0.4:1, out.gap.liq?0:1, out.gap.crowd?0.3:1
+  ].reduce((s2,v)=>s2+v,0)/6);
+
   if(!out.fails.length){
     out.state='open';
     out.reasons.push(`همه‌ی شرط‌های دروازه برقرار است (امتیاز ${a.buyScore}، R/R ${a.rrNow.toFixed(2)}${isBtc?'':`، RS ${pct(a.rs7,1)}`})`);
+    if(momo) out.reasons.push('🚀 مسیر مومنتوم فعال بود: آستانه‌ی امتیاز ۴ واحد و R/R ۰٫۳۵ واحد تعدیل شد؛ ورود از پولبک پلکانی، نه تعقیب قیمت');
   } else if(out.fails.length===1 && a.buyScore>=need.score-8 && a.rrNow>=need.rrNow-0.5){
     out.state='watch';
     out.reasons.push('فقط یک شرط باقی مانده — در واچ‌لیست نگه دارید و منتظر تأیید بمانید');
@@ -547,6 +587,34 @@ function analyze(c,pre=null){
   }
   if(a.volZ!=null && a.ch24>6 && a.volZ<-0.5) add(-3,'رشد ۲۴ ساعته با حجمی کمتر از میانگین — ضعف تقاضا');
   if(a.obvSlope!=null && a.ch7>3 && a.obvSlope<0) add(-3,'واگرایی قیمت/حجم: قیمت رشد کرده ولی OBV نزولی است');
+  /* 🚀 مسیر مومنتوم (momo lane): ادامه‌ی روند سالم در نزدیک‌ترین نقطه به سقف ۷ روزه.
+     این پرچم تنبیه‌های بازگشت‌به‌میانگینِ امتیاز را برای شکست‌های «سالم» خنثی
+     می‌کند و آستانه‌های دروازه را چند واحد تعدیل می‌کند — نه حذف. شرط‌ها:
+     ساختار مومنتوم تأیید‌شده + نبود واگرایی نزولی + RSI در ناحیه‌ی روند (نه
+     exhaustion) و حجم بی‌طرف به بالا. شکستِ بدون حجم یا پارابولیک مشمول نمی‌شود. */
+  {
+    const structureOk = a.macd>a.sig && a.cross!=='death' && a.slopeH>0.02;
+    const nearHigh    = a.rangePos>=0.9;
+    const notBlownOff = a.rsi>=55 && a.rsi<=85 && a.diverg!=='bear' && a.diverg!=='hBear';
+    const volOk       = (a.volZ==null || a.volZ>=0.2) && a.volRatio>=0.02 && (a.ch24==null || a.ch24<18);
+    if(structureOk && nearHigh && notBlownOff && volOk){
+      a.momo=true;
+      add(+6,'🚀 ادامه‌ی روند تأییدشده نزدیک سقف ۷ روزه (ساختار مومنتوم + RSI در ناحیه‌ی روند) — مسیر مومنتوم فعال');
+    }
+  }
+  /* 🔻 قرینه‌ی مسیر مومنتوم برای شورت: ادامه‌دهنده‌ی ریزش نزدیک کف ۷ روزه.
+     این پرچم امتیاز لانگ را کم می‌کند (تعقیب کف در حال ریزش مجاز نیست) و به
+     موتور شورت اجازه می‌دهد بدون پولبک، با بافر نوسانی وارد شود. */
+  {
+    const downStructure = a.macd<a.sig && a.slopeH<-0.02 && a.cross!=='golden';
+    const nearLow       = a.rangePos<=0.12;
+    const notCapitulated= a.rsi>=15 && a.rsi<=45 && a.diverg!=='bull' && a.diverg!=='hBull';
+    const volDown       = (a.volZ==null || a.volZ>=0.2) && a.volRatio>=0.02 && (a.ch24==null || a.ch24>-18);
+    if(downStructure && nearLow && notCapitulated && volDown && a.momo!==true){
+      a.momoDown=true;
+      S.push({t:'🔻 ادامه‌دهنده‌ی ریزش تأییدشده نزدیک کف ۷ روزه — مسیر شورتِ بدون‌پولبک برای موتور شورت آزاد است (به امتیاز تکنیکال اثری ندارد)', s:0});
+    }
+  }
   a.score=Math.round(clamp(sc,0,100)); a.signals=S;
 
   // مستعد رشد: بازگشت (RD+) یا ادامه روند (HD+) یا سایر سیگنال‌های برگشتی
@@ -634,6 +702,7 @@ function buyPlan(a, c, lastP, p){
   if(pivBelow.length){ push(pivBelow[0], 1.6, 'نزدیک‌ترین کف پیوت'); a.pivot=pivBelow[0]; }
 
   let bias = 0;
+  if(a.momo) bias += 0.25;                 // در مسیر مومنتوم، ورود به بازار نزدیک‌تر از کفِ لنگرهاست
   if(a.score>=74) bias += 0.45;
   else if(a.score>=62) bias += 0.30;
   else if(a.score<42) bias -= 0.35;
@@ -644,7 +713,9 @@ function buyPlan(a, c, lastP, p){
   if(a.diverg==='hBull')   bias += 0.15; // HD+ ادامه صعود، ورود نزدیک‌تر
   if(a.diverg==='hBear')   bias -= 0.18; // HD- ادامه نزول، صبر بیشتر
   if(a.cross==='golden')   bias += 0.15;
-  if(a.rangePos>0.9)       bias -= 0.25;
+  // بدون تأیید مومنتوم، چسبیدن به سقف یعنی «تعقیب ممنوع»؛ با تأیید، یعنی «ادامه‌ی روند»
+  if(a.rangePos>0.9 && !a.momo) bias -= 0.25;
+  if(a.momo && a.rangePos>=0.97) bias += 0.10;
   if(a.bbWidth<4)          bias += 0.10;
 
   let base = anchors.length? anchors.reduce((s2,x)=>s2+x.v*x.w,0)/anchors.reduce((s2,x)=>s2+x.w,0) : mkt*0.97;
@@ -744,11 +815,13 @@ function buyPlan(a, c, lastP, p){
   b += clamp(-a.entryGap,0,6)*1.1;
   b += clamp(a.conf-50,-25,35)*0.11;
   b += clamp(Math.log10(Math.max(1,(c.market_cap||1))/1e8),-2,2.5)*1.6;
-  b -= clamp(a.dvol-4,0,12)*1.15;
-  b -= clamp(a.rsi-68,0,32)*0.28;
+  b -= (a.momo?0.45:1)*clamp(a.dvol-4,0,12)*1.15;
+  b -= (a.momo?0.45:1)*clamp(a.rsi-68,0,32)*0.28;
+  if(a.momo) b += 6;                                    // پاداش ادامه‌ی روند سالم
   if(a.buyState==='now')   b+=5;
-  if(a.buyState==='below') b+=2;
-  if(a.buyState==='no')    b-=7;
+  else if(a.buyState==='below') b+=2;
+  else if(a.buyState==='wait') b+= a.momo?3:0;
+  else if(a.buyState==='no') b-= a.momo?2.5:7;          // در مسیر مومنتوم، فاصله تا پولبک تنبیه مرگبار نیست
   if(a.volRatio<0.008)     b-=6;
   if(a.diverg==='bull')    b+=clamp(a.divergStrength,0,12)*0.55; // RD+
   if(a.diverg==='bear')    b-=clamp(a.divergStrength,0,12)*0.65; // RD-
@@ -756,10 +829,12 @@ function buyPlan(a, c, lastP, p){
   if(a.diverg==='hBear')   b-=clamp(a.divergStrength,0,10)*0.50; // HD- ادامه نزول
   if(a.cat==='sell')       b-=5;
   if(a.cat==='ssell')      b-=12;
+  // ادامه‌روند نزولی تأیید‌شده: خریدِ تعقیب‌کف جریمه می‌شود (موتور شورت بهره می‌برد)
+  if(a.momoDown)           b-=8;
   if(a.wideStop)           b-=3;
   if(a.athDist!=null && a.athDist<-92) b-=4;
-  // جریمه RR ضعیف با قیمت فعلی — هماهنگی با دروازه
-  if(a.rrNow<1) b-= (1-a.rrNow)*2;
+  // جریمه RR ضعیف با قیمت فعلی — هماهنگی با دروازه (در مسیر مومنتوم نصف، چون ورود از پلکان پایین‌تر است)
+  if(a.rrNow<1) b -= (1-a.rrNow)*(a.momo?0.8:2);
   a.buyRaw=b;
   a.buyScore=Math.round(clamp(50+b,0,100));
   setGrade(a);
@@ -806,9 +881,14 @@ function applyMarketContext(){
     }
   }
   const fng=fngValue();
-  const k = pts>=3?'riskon' : pts<=-3?'riskoff' : 'neutral';
+  /* هیزتریس رژیم: تغییر جهت فقط پس از تأیید در دو چرخه‌ی داده‌ی متوالی.
+     روی لبه‌ی آستانه (pts≈±3) یک ارز/یک رویداد خبری نباید دروازه و کارنامه
+     را هر ۹۰ ثانیه وارونه کند؛ نمونه‌ی دوم همان جهت، تغییر را قطعی می‌کند. */
+  const rawK = pts>=3?'riskon' : pts<=-3?'riskoff' : 'neutral';
+  const k = regimeCommit(rawK);
   state.regime={...REGIMES[k], btcAvailable:!!btc&&shortCoinFresh(btc), pts, why, breadth, above,
-    objBreadth, medianCh24, gt, fng, btc7:btc?btc.a.ch7:0, btc24:btc?btc.a.ch24:0};
+    objBreadth, medianCh24, gt, fng, btc7:btc?btc.a.ch7:0, btc24:btc?btc.a.ch24:0,
+    rawK, pendingSwitch: rawK!==k ? rawK : null };
 
   state.gate=evalMarketGate(state.regime);
 
@@ -870,13 +950,14 @@ function applyMarketContext(){
 }
 
 /* Short research workspace: isolated storage keeps legacy long history intact. */
-const shorts={records:[], enabled:false, filter:'all'};
+const shorts={records:[], enabled:false, filter:'all', ladder:false};
 try{
   const saved=JSON.parse(localStorage.getItem('cb_short_v1')||'{}')||{};
   shorts.enabled=saved.enabled===true;
+  shorts.ladder=saved.ladder===true;
   shorts.records=ShortEngine.restoreRecords(saved.records);
 }catch(e){}
-function saveShorts(){try{localStorage.setItem('cb_short_v1',JSON.stringify({enabled:shorts.enabled,records:ShortEngine.keepRecords(shorts.records)}));}catch(e){}}
+function saveShorts(){try{localStorage.setItem('cb_short_v1',JSON.stringify({enabled:shorts.enabled,ladder:shorts.ladder,records:ShortEngine.keepRecords(shorts.records)}));}catch(e){}}
 function shortFresh(){const age=Date.now()-state.dataAt;return state.liveData===true&&Number.isFinite(age)&&age>=0&&age<CACHE_FRESH_MS;}
 function shortCoinFresh(c){const t=Date.parse(c.last_updated);return Number.isFinite(t)&&Date.now()-t<CACHE_FRESH_MS&&t<=Date.now()+60000;}
 function longCandidate(c){
@@ -904,17 +985,21 @@ function shortCycle(){
   updateShortPlans();
   if(!shortFresh()){renderShorts();return;}
   const now=Date.now();
+  const EVENT_TXT={half:'هدف اول — ۵۰٪ بسته شد؛ حد ضرر نیمه‌ی باقی‌مانده روی ورود (سر‌به‌سر)',
+    win:'هدف', be:'خروج سر‌به‌سر پس از هدف اول', loss:'حد ضرر', expired:'سررسید'};
   shorts.records.forEach(r=>{
     const c=state.coins.find(c=>c.id===r.id);if(!c||!shortCoinFresh(c))return;
     const px=c.current_price, p=r.status==='waiting'?ShortEngine.plan(c,state.regime,shortOptions(c,r)):c.a.plans.short;
     const event=ShortEngine.advance(r,px,now);
-    if(event) shortAlert(c,event==='cancelled'?'ستاپ منتظر منقضی/باطل شد':`${event==='win'?'هدف اول':event==='loss'?'حد ضرر':'سررسید'} • بازده ناخالص ${pct(r.ret)}`);
+    if(event) shortAlert(c,event==='cancelled'?'ستاپ منتظر منقضی/باطل شد'
+      :`${EVENT_TXT[event]||event} • بازده ${pct(r.ret)}${Number.isFinite(r.retNet)?` • خالص پس از هزینه ${pct(r.retNet)}`:''}`);
     if(r.status==='waiting'){
       if(!shorts.enabled||p.state==='blocked'||shortConflict(c)){
         r.status='cancelled';r.closed=now;shortAlert(c,'ستاپ منتظر به دلیل تغییر شرایط باطل شد');
-      }else if(px>=r.entryLo&&px<=r.entryHi&&px<r.stop&&px>r.tp1&&(px-r.tp1)/(r.stop-px)>=p.gate.need.rr){
+      }else if(px>=r.entryLo&&px<r.stop&&px>r.tp1&&(px-r.tp1)/(r.stop-px)>=p.gate.need.rr){
+        // هر قیمت از entryLo تا stop مجاز است؛ بالاتر از entry = فروشِ گران‌تر = اجرای بهتر
         Object.assign(r,{status:'active',fill:px,opened:now,last:px,peak:px,trough:px});
-        shortAlert(c,`ورود مشاهده‌شده ${fmtP(px)} • حد ضرر ${fmtP(r.stop)} • هدف ${fmtP(r.tp1)}`);
+        shortAlert(c,`ورود مشاهده‌شده ${fmtP(px)}${px>r.entryHi?' (بهتر از حداقل ثبت‌شده)':''} • حد ضرر ${fmtP(r.stop)} • هدف ${fmtP(r.tp1)}`);
       }
     }
   });
@@ -923,7 +1008,10 @@ function shortCycle(){
     if(!p.valid||p.state==='blocked'||shortConflict(c))return;
     // One live setup per asset, and a 24h cooldown after closing/cancelling.
     if(shorts.records.some(r=>r.id===c.id&&(['active','waiting'].includes(r.status)||now-(r.closed||r.created)<86400000)))return;
-    const r={...p,gate:undefined,id:c.id,sym:c.symbol,created:now,status:p.state==='ready'?'active':'waiting'};
+    const rc=riskCfg();
+    const r={...p,gate:undefined,id:c.id,sym:c.symbol,created:now,status:p.state==='ready'?'active':'waiting',
+      // تنظیمات لحظه‌ی ثبت روی رکورد یخ می‌زند؛ تغییر بعدی معنی رکوردهای قبلی را عوض نمی‌کند
+      ladder:shorts.ladder===true, feePct:Math.max(0,+rc.feePct||0)};
     if(r.status==='active')Object.assign(r,{fill:c.current_price,opened:now,last:c.current_price,peak:c.current_price,trough:c.current_price});
     shorts.records.push(r);
     shortAlert(c,r.status==='active'?`ورود مشاهده‌شده ${fmtP(r.fill)} • حد ضرر ${fmtP(r.stop)}`:`انتظار پولبک به ${fmtP(p.entry)} — هنوز معامله فعال نیست`);
@@ -932,16 +1020,30 @@ function shortCycle(){
   shorts.records=ShortEngine.keepRecords(shorts.records);
   saveShorts();renderShorts();
 }
-const SHORT_STATUS={blocked:'بدون ورود',waiting:'منتظر پولبک',ready:'آماده ورود',active:'فعال آزمایشی',win:'هدف اول',loss:'حد ضرر',expired:'سررسید',cancelled:'باطل‌شده'};
+const SHORT_STATUS={blocked:'بدون ورود',waiting:'منتظر پولبک',ready:'آماده ورود',active:'فعال آزمایشی',half:'نصف بسته‌شده (سر‌به‌سر)',win:'هدف',be:'سر‌به‌سر پس از هدف',loss:'حد ضرر',expired:'سررسید',cancelled:'باطل‌شده'};
+const SHORT_PILL={blocked:'ss-block',waiting:'ss-wait',ready:'ss-ready',active:'ss-ready',half:'ss-wait',win:'ss-ready',be:'ss-wait',loss:'ss-block',expired:'ss-wait',cancelled:'ss-block'};
+/* هندسه‌ی شورت آینه‌ی لانگ است: «ورود» یعنی فروش در این قیمت یا بالاتر */
+function shortGapPct(c,p){ if(!p?.valid) return null; const px=c.current_price; return px>=p.entryLo?0:(p.entry/px-1)*100; }
 function shortDetails(c){
   const p=c.a.plans?.short;
   if(!p)return '<p>پس از دریافت داده محاسبه می‌شود.</p>';
   const shown=p.state==='ready'?{...p,entry:c.current_price}:p;
   const pos=ShortEngine.position(shown,riskCfg());
-  return `<b>🔻 شورت • ${esc(SHORT_STATUS[p.state])} • امتیاز ${p.score}/100</b>
+  const gap=shortGapPct(c,p);
+  return `<div class="ss-head"><b>🔻 شورت • امتیاز ${p.score}/100</b>
+      <span class="sspill ${SHORT_PILL[p.state]||'ss-block'}">${esc(SHORT_STATUS[p.state]||p.state)}</span>
+      ${gap!=null&&p.state==='waiting'?`<small class="muted">فاصله تا ورود: <b>${pct(-gap,1)}</b></small>`:''}
+      ${p.betterFill?'<small class="up">▲ قیمت از حداقل ورود بالاتر رفته — ورود در قیمت فعلی بهتر است</small>':''}</div>
+    <div class="score-bar" role="img" aria-label="امتیاز شورت ${p.score} از ۱۰۰"><span></span><i style="left:${p.score}%"></i></div>
     <p>${p.gate.reasons.map(esc).join(' • ')}</p>
-    ${p.valid?`<p>محدوده ورود: ${fmtP(p.entryLo)} تا ${fmtP(p.entryHi)} • مبنا: ${fmtP(p.entry)} | حد ضرر: ${fmtP(p.stop)} | اهداف: ${fmtP(p.tp1)} / ${fmtP(p.tp2)}</p>
-    <p>R/R ورود: ${p.rr.toFixed(2)} | فعلی: ${p.rrNow.toFixed(2)}</p>
+    ${p.valid?`<div class="tri">
+      <div class="sentry">ورود<b>${fmtP(p.entry)}</b></div>
+      <div class="sl">حد ضرر<b>${fmtP(p.stop)}</b></div>
+      <div class="t1">هدف ۱<b>${fmtP(p.tp1)}</b></div>
+      <div class="rr">R/R<b>${p.rr.toFixed(2)}:1 <small>فعلی ${p.rrNow.toFixed(2)}</small></b></div>
+    </div>
+    ${p.lane==='continuation'?'<p class="lane-note">🔻 مسیر ادامه‌دهنده ریزش: ورود در قیمت بازار با بافر نوسانی، بدون پولبک — ریسک بازگشت بالاتر و حد ضرر نزدیک‌تر است</p>':''}
+    <p style="font-size:.72rem;color:var(--muted)">محدوده ورود (فروش در این قیمت یا بالاتر): <b>${fmtP(p.entryLo)}</b> به بالا • ریسک تا حد ضرر: <b class="down">−${p.riskPct.toFixed(1)}٪</b>${shorts.ladder?' • خروج: ۵۰٪ روی هدف ۱ و سر‌به‌سر برای باقی‌مانده':''}</p>
     ${p.fundingAnnual!=null?`<p>فاندینگ سالانه‌ی فیوچرز: <b>${pct(p.fundingAnnual,1)}</b>${p.oiChangePct!=null?` • تغییر OI: ${pct(p.oiChangePct,1)}`:''} ${p.crowd&&p.crowd.side==='short'?'<b class="down">— ازدحام سمت شورت (ریسک اسکوییز)</b>':p.fundingAnnual>=40?'<b class="up">— ازدحام سمت لانگ (به نفع شورت)</b>':''}</p>`:''}
     ${pos?`<p>حجم بر مبنای ${p.state==='ready'?'قیمت فعلی':'ورود پیشنهادی'} و تنظیمات سرمایه: ${fmtN(pos.units,4)} واحد • ارزش اسمی: ${fmtP(pos.notional)} • زیان حد ضرر: ${fmtP(pos.loss)} • سود هدف اول: ${fmtP(pos.gain)}</p>`:''}`:''}`;
 }
@@ -954,16 +1056,23 @@ function renderShorts(){
   }).filter(c=>shorts.filter!=='approved'||c.a.plans.short.state!=='blocked').slice(0,25);
   $('#shortEnabled').checked=shorts.enabled;
   $('#shortFresh').textContent=shortFresh()?'داده تازه؛ نتایج تحلیلی، بدون اجرای سفارش':'آفلاین / داده کهنه؛ ورود و ارزیابی کارنامه متوقف است';
-  box.innerHTML=plans.length?plans.map(c=>`<article class="short-card"><h3>${esc(c.name)} <small>${esc(c.symbol.toUpperCase())}</small></h3>${shortDetails(c)}<button data-short-open="${esc(c.id)}">نمودار و جزئیات</button></article>`).join(''):'<p>فرصتی مطابق این فیلتر وجود ندارد؛ عدم معامله یک خروجی معتبر است.</p>';
-  const done=shorts.records.filter(r=>['win','loss','expired'].includes(r.status));
+  box.innerHTML=plans.length?plans.map(c=>{ const p=c.a.plans.short, gap=shortGapPct(c,p); return `<article class="short-card">
+      <h3>${esc(c.name)} <small>${esc(c.symbol.toUpperCase())}</small></h3>
+      <div class="ss-price"><b>${fmtP(c.current_price)}</b><span class="${cls(c.a.ch24)}">${pct(c.a.ch24,1)}</span>
+        ${p.valid&&gap!=null?`<span class="muted">تا ناحیه ورود: <b class="${gap<=0?'up':'down'}">${gap<=0?'✅ در ناحیه':pct(gap,1)}</b></span>`:''}</div>
+      ${shortDetails(c)}<button data-short-open="${esc(c.id)}">نمودار و جزئیات</button></article>`; }).join('')
+    :'<p>فرصتی مطابق این فیلتر وجود ندارد؛ عدم معامله یک خروجی معتبر است.</p>';
+  const done=shorts.records.filter(r=>['win','loss','expired','be'].includes(r.status));
   const avg=done.length?done.reduce((s,r)=>s+r.ret,0)/done.length:0;
-  $('#shortStats').textContent=`کارنامه مستقل شورت • ${done.length} بسته • میانگین ناخالص ${pct(avg)} • ${shorts.records.filter(r=>r.status==='active').length} فعال • ${shorts.records.filter(r=>r.status==='waiting').length} منتظر`;
-  $('#shortHistory').innerHTML=[...shorts.records].sort((a,b)=>(b.closed||b.opened||b.created)-(a.closed||a.opened||a.created)).slice(0,30).map(r=>`<tr><td>${esc(r.sym.toUpperCase())} • شورت</td><td>${esc(SHORT_STATUS[r.status])}</td><td>${fmtP(r.fill||r.entry)}</td><td>${fmtP(r.stop)}</td><td>${fmtP(r.tp1)}</td><td>${r.ret==null?'—':pct(r.ret)}</td></tr>`).join('');
+  const netRecs=done.filter(r=>Number.isFinite(r.retNet));
+  const avgNet=netRecs.length?netRecs.reduce((s,r)=>s+r.retNet,0)/netRecs.length:null;
+  $('#shortStats').textContent=`کارنامه مستقل شورت • ${done.length} بسته • میانگین ناخالص ${pct(avg)}${avgNet!=null?` • خالص پس از کارمزد/فاندینگ ${pct(avgNet)}`:''} • ${shorts.records.filter(r=>r.status==='active').length} فعال • ${shorts.records.filter(r=>r.status==='waiting').length} منتظر${shorts.ladder?' • مدیریت پلکانی فعال است':''}`;
+  $('#shortHistory').innerHTML=[...shorts.records].sort((a,b)=>(b.closed||b.halfT||b.opened||b.created)-(a.closed||a.halfT||a.opened||a.created)).slice(0,30).map(r=>`<tr><td>${esc(r.sym.toUpperCase())} • شورت${r.ladder?' <small class="muted">پلکانی</small>':''}</td><td>${esc(SHORT_STATUS[r.status])}${r.status==='half'&&r.last!=null?` <small class="muted">${pct((r.fill-r.last)/r.fill*100*0.5+ r.realized1,true)} تا الان</small>`:''}</td><td>${fmtP(r.fill||r.entry)}</td><td>${fmtP(r.stop)}</td><td>${fmtP(r.tp1)}</td><td>${r.ret==null?'—':pct(r.ret)}${Number.isFinite(r.retNet)?`<small class="muted"> / ${pct(r.retNet)} خالص</small>`:''}</td><td><button class="rp-mini" data-action="replay" data-kind="short" data-id="${esc(r.id)}" title="بازپخش روی نمودار">🔁</button></td></tr>`).join('');
 }
 function exportShortCSV(){
   updateShortPlans();
-  const rows=[['side','version','symbol','state','score','entry','stop','tp1','tp2','rr','rrNow','reasons']];
-  state.coins.filter(tradable).forEach(c=>{const p=c.a.plans?.short;if(p)rows.push(['short',p.version,c.symbol,p.state,p.score,p.entry,p.stop,p.tp1,p.tp2,p.rr,p.rrNow,p.gate.reasons.join(' | ')]);});
+  const rows=[['side','version','symbol','state','lane','score','entry','stop','tp1','tp2','rr','rrNow','reasons']];
+  state.coins.filter(tradable).forEach(c=>{const p=c.a.plans?.short;if(p)rows.push(['short',p.version,c.symbol,p.state,p.lane||'pullback',p.score,p.entry,p.stop,p.tp1,p.tp2,p.rr,p.rrNow,p.gate.reasons.join(' | ')]);});
   // Neutralize spreadsheet formula injection in untrusted asset names/symbols.
   const cell=v=>'"'+String(v??'').replace(/^[=+@-]/,"'$&").replace(/"/g,'""')+'"';
   const blob=new Blob(['\uFEFF'+rows.map(r=>r.map(cell).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8;'});
@@ -971,9 +1080,11 @@ function exportShortCSV(){
 }
 function initShortUI(){
   $('#shortEnabled').onchange=e=>{shorts.enabled=e.target.checked;saveShorts();shortCycle();};
+  $('#shortLadder').onchange=e=>{shorts.ladder=e.target.checked;saveShorts();renderShorts();toast(e.target.checked?'🪜 مدیریت پلکانی روشن شد: از این پس، نصف پوزیشن در هدف اول بسته می‌شود و حد ضرر باقی‌مانده روی ورود (سر‌به‌سر) قرار می‌گیرد':'🪜 مدیریت پلکانی خاموش شد؛ رکوردهای ثبت‌شده با تنظیمات همان لحظه باقی می‌مانند');};
   $('#shortFilter').onchange=e=>{shorts.filter=e.target.value;renderShorts();};
   $('#shortCSV').onclick=exportShortCSV;
   $('#shortPanel').onclick=e=>{const b=e.target.closest('[data-short-open]');if(b)openModal(b.dataset.shortOpen);};
+  $('#shortLadder').checked=shorts.ladder===true;
 }
 
 /* =====================================================================
@@ -1085,7 +1196,8 @@ function longSignal(c){
     gate:g?{ state:g.state, exempt:!!g.exempt, reasons:g.reasons||[],
       thresholds:g.need?{score:g.need.score,rrNow:num(g.need.rrNow,4),rs7:num(g.need.rs7,4)}:null }:null,
     context:{ rs7:num(a.rs7,4), pred7d:num(a.pred,4), rsi:num(a.rsi,2),
-      divergence:a.divergType||null, volatilityPct:num(a.dvol,4), marketCap:num(c.market_cap,2) },
+      divergence:a.divergType||null, volatilityPct:num(a.dvol,4), marketCap:num(c.market_cap,2),
+      momentumLane: a.momo===true },
     disclaimer:DISCLAIMER
   };
 }
@@ -1096,8 +1208,12 @@ function shortSignal(c){
     id:c.id, symbol:String(c.symbol||'').toUpperCase(), name:c.name,
     price:num(c.current_price),
     entry:{ best:num(p.entry), low:num(p.entryLo), high:num(p.entryHi), avg:num(p.avgEntry),
-      state:p.state, stateText:SHORT_STATUS[p.state]||null, ladder:[] },
-    exit:{ stop:num(p.stop), tp1:num(p.tp1), tp2:num(p.tp2) },
+      state:p.state, stateText:SHORT_STATUS[p.state]||null, ladder:[], lane:p.lane||'pullback',
+      semantics:'limit-at-or-above', betterFill:!!p.betterFill },
+    exit:{ stop:num(p.stop), tp1:num(p.tp1), tp2:num(p.tp2),
+      ladder:shorts.ladder?{halfSizePct:50,halfAt:'tp1',then:'tp2-or-stop-at-entry'}:null },
+    costModel:{ feePctPerSide:num(riskCfg().feePct,4), funding:'annual-rate × hold-days ÷ 365 (cap 7d), credit for shorts',
+      recordedAs:'retNet' },
     risk:{ rr:num(p.rr,4), rrNow:num(p.rrNow,4), riskPct:num(p.riskPct,4), wideStop:false },
     score:{ shortScore:p.score, technical:c.a.score },
     gate:{ state:p.gate.state, exempt:false, reasons:p.gate.reasons||[],
@@ -1123,7 +1239,7 @@ function buildSignalPayload(opts={}){
   });
   signals.sort((x,y)=>(y.score.buyScore??y.score.shortScore??0)-(x.score.buyScore??x.score.shortScore??0));
   const R=state.regime;
-  return {
+  const payload={
     schemaVersion:SIGNAL_SCHEMA_VERSION,
     generatedAt:new Date().toISOString(),
     dataAsOf:Number.isFinite(state.dataAt)?new Date(state.dataAt).toISOString():null,
@@ -1137,6 +1253,16 @@ function buildSignalPayload(opts={}){
     signals,
     disclaimer:DISCLAIMER
   };
+  /* چک‌سم FNV-1a روی بدنه‌ی سیگنال‌ها — این یک برنامه‌ی سمت کلاینت است و کلید
+     مخفی در آن معنا ندارد؛ چک‌سم ساده کمک می‌کند مصرف‌کننده‌ی خروجی (اسکریپت،
+     فایل ذخیره‌شده) دستکاری یا ناقص‌بودن JSON را تشخیص دهد، نه اصالت‌سنجی. */
+  payload.checksum=fnv1a(JSON.stringify({generatedAt:payload.generatedAt,count:payload.count,signals:payload.signals}));
+  return payload;
+}
+function fnv1a(str){
+  let h=0x811c9dc5;
+  for(let i=0;i<str.length;i++){ h^=str.charCodeAt(i); h=Math.imul(h,0x01000193); }
+  return (h>>>0).toString(16).padStart(8,'0');
 }
 function apiOptions(){
   return { side:($('#apiSide')&&$('#apiSide').value)||'both',
@@ -1149,7 +1275,7 @@ function renderApiPreview(){
   pre.textContent=JSON.stringify(preview,null,2);
   const s=$('#apiSummary');
   if(s) s.textContent=payload.count
-    ? `${payload.count} سیگنال در خروجی • نمایش ۲ مورد اول • داده: ${payload.dataFresh?'تازه':'کهنه/آفلاین'}${payload.dataAsOf?` (${faTime(payload.dataAt||Date.parse(payload.dataAsOf))})`:''}`
+    ? `${payload.count} سیگنال در خروجی • نمایش ۲ مورد اول • داده: ${payload.dataFresh?'تازه':'کهنه/آفلاین'}${payload.dataAsOf?` (${faTime(payload.dataAt||Date.parse(payload.dataAsOf))})`:''} • چک‌سم بدنه: ${payload.checksum} (FNV-1a)`
     : 'با این فیلتر سیگنالی وجود ندارد — عدم معامله هم یک خروجی معتبر است.';
 }
 function downloadSignalJSON(){
@@ -1388,7 +1514,29 @@ function renderTradeStrip(){
     html+=`<div class="ts-empty">در حال حاضر هیچ ارزی همه‌ی شرط‌های دروازه را هم‌زمان ندارد${watch.length?' — موارد «انتخابی» زیر با یک تأیید وارد فهرست مجازها می‌شوند':''}.</div>`;
     if(watch.length) html+=`<div class="trade-chips" style="margin-top:7px">${watch.slice(0,6).map(c=>tradeChipHtml(c,true)).join('')}</div>`;
   }
+  if(open.length<3) html+=gapSectionHtml(cs);
   el.innerHTML=html;
+}
+
+/* «چقدر تا مجوز» — نزدیک‌ترین ارزهای مسدود/انتخابی با میله‌ی پیشرفت و شکاف هر شرط */
+function gapSectionHtml(cs){
+  const rows=cs.filter(c=>c.a.gate&&!c.a.gate.exempt&&c.a.gate.gap&&c.a.gate.state!=='open'&&c.a.gate.need)
+    .map(c=>({c,g:c.a.gate.gap,need:c.a.gate.need,close:c.a.gate.closeness||0}))
+    .sort((x,y)=>y.close-x.close).slice(0,6);
+  if(!rows.length) return '';
+  const chip=(t,ok)=>`<span class="gap-item ${ok?'ok':'bad'}">${t}${ok?' ✓':' ✗'}</span>`;
+  return `<div class="gap-sec"><div class="ts-h">📏 چقدر تا مجوز — نزدیک‌ترین‌ها به دروازه <span class="ts-sub">هر قلم: مقدار فعلی / آستانه‌ی این چرخه</span></div>
+    <div class="gap-rows">${rows.map(r=>{ const c=r.c, a=c.a;
+      const items=[
+        chip(`امتیاز ${a.buyScore}/${r.need.score}`, r.g.score===0),
+        chip(`R/R ${a.rrNow.toFixed(2)}/${r.need.rrNow.toFixed(1)}`, r.g.rr===0),
+        c.id!=='bitcoin'?chip(`RS ${pct(a.rs7,1)}/${pct(r.need.rs7,1)}`, r.g.rs===0):'',
+        chip({now:'در محدوده',below:'زیر محدوده',wait:'کمی صبر',no:'تعقیب قیمت'}[a.buyState]||a.buyState, !r.g.state),
+        chip(`حجم ${(a.volRatio*100).toFixed(1)}٪`, !r.g.liq),
+        r.g.crowd?chip('ازدحام لاگ',false):''
+      ].filter(Boolean).join('');
+      return `<div class="gap-row" data-action="open" data-id="${esc(c.id)}" role="button" tabindex="0" title="${esc(c.name)}"><img src="${safeImg(c.image)}" alt="" loading="lazy"><span class="sym"><b>${esc(c.symbol.toUpperCase())}</b></span><div class="gap-bar" role="img" aria-label="نسبت آمادگی ${r.close}٪"><span style="width:${r.close}%"></span></div><span class="gap-items">${items}</span></div>`;
+    }).join('')}</div>`;
 }
 
 /* مقدار عددی معتبر شاخص ترس و طمع (۰ تا ۱۰۰) یا null — یک مرجع واحد برای گیج، رژیم و دروازه.
@@ -1422,7 +1570,8 @@ function renderRegime(){
   const R=state.regime; if(!R) return;
   const box=$('#regimePanel');
   const regEl=box.querySelector('.regime');
-  if(regEl){ regEl.style.setProperty('--rc',R.c); const ico=regEl.querySelector('.rico'); if(ico) ico.textContent=R.icon; const lbl=regEl.querySelector('.rlbl'); if(lbl) lbl.textContent=R.label; const sub=regEl.querySelector('.rsub'); if(sub) sub.textContent=`BTC ۲۴h: ${pct(R.btc24,1)} • BTC ۷d: ${pct(R.btc7,1)} • امتیاز رژیم ${R.pts>0?'+':''}${R.pts}`; }
+  if(regEl){ regEl.style.setProperty('--rc',R.c); const ico=regEl.querySelector('.rico'); if(ico) ico.textContent=R.icon; const lbl=regEl.querySelector('.rlbl'); if(lbl) lbl.textContent=R.label; const sub=regEl.querySelector('.rsub');
+    if(sub) sub.textContent=`BTC ۲۴h: ${pct(R.btc24,1)} • BTC ۷d: ${pct(R.btc7,1)} • امتیاز رژیم ${R.pts>0?'+':''}${R.pts}` + (R.pendingSwitch?` • ⟳ در انتظار تأیید چرخه‌ی بعد برای تغییر به «${REGIMES[R.pendingSwitch]?.label??R.pendingSwitch}»`:''); }
   $('#regimeWhy').innerHTML=R.why.slice(0,4).map(w=>`<span>${esc(w)}</span>`).join('');
   let hint=R.hint;
   if(R.k==='riskon' && R.fng!=null && R.fng>78) hint+=' ⚠️ اما طمع شدید در بازار؛ از تعقیب قیمت بپرهیزید.';
@@ -1535,6 +1684,7 @@ async function openModal(id){
 }
 function closeModal(){
   $('#modal').classList.remove('open'); document.body.style.overflow='';
+  stopReplay();   // بازپخش کارنامه فقط داخل مودال معنا دارد
   if(modalReturnFocus && typeof modalReturnFocus.focus==='function') modalReturnFocus.focus();
   modalReturnFocus=null;
 }
@@ -1542,7 +1692,8 @@ function closeModal(){
 function renderModalInfo(c){
   $('#mshort').innerHTML=shortDetails(c);
   const a=c.a,C=CATS[a.cat];
-  $('#mhead').innerHTML=`<img src="${safeImg(c.image)}" alt="" loading="lazy"><div><h2>${esc(c.name)} <small style="color:var(--muted);font-size:.9rem">${esc(c.symbol.toUpperCase())} • رتبه #${esc(c.market_cap_rank)}</small></h2><span class="cat" style="--catc:${C.c}">${C.icon} ${C.label} — امتیاز تکنیکال ${a.score}/100 • امتیاز خرید ${a.buyScore} (${esc(a.grade)})</span>${a.kind!=='asset'?`<div style="font-size:.72rem;color:var(--pot);margin-top:4px">⚠️ ${KIND_LABEL[a.kind]} — از رتبه‌بندی «بهترین خرید» و کارنامه سیگنال‌ها مستثناست</div>`:''}</div><div class="mp">${fmtP(c.current_price)}<div style="font-size:.85rem" class="${cls(a.ch24)}">${pct(a.ch24)} (۲۴h) • RS/BTC ${pct(a.rs7,1)}</div></div>`;
+  const rpKind=replayKindFor(c.id);
+  $('#mhead').innerHTML=`<img src="${safeImg(c.image)}" alt="" loading="lazy"><div><h2>${esc(c.name)} <small style="color:var(--muted);font-size:.9rem">${esc(c.symbol.toUpperCase())} • رتبه #${esc(c.market_cap_rank)}</small></h2><span class="cat" style="--catc:${C.c}">${C.icon} ${C.label} — امتیاز تکنیکال ${a.score}/100 • امتیاز خرید ${a.buyScore} (${esc(a.grade)})</span>${a.kind!=='asset'?`<div style="font-size:.72rem;color:var(--pot);margin-top:4px">⚠️ ${KIND_LABEL[a.kind]} — از رتبه‌بندی «بهترین خرید» و کارنامه سیگنال‌ها مستثناست</div>`:''}</div><div class="mp">${fmtP(c.current_price)}<div style="font-size:.85rem" class="${cls(a.ch24)}">${pct(a.ch24)} (۲۴h) • RS/BTC ${pct(a.rs7,1)}</div>${rpKind?`<button class="btn sm rp-open" data-action="replay" data-kind="${rpKind}" data-id="${c.id}" title="آخرین رکورد ${rpKind==='short'?'شورت':'لانگ'} این ارز را روی نمودار بازپخش کن">🔁 بازپخش رکورد</button>`:''}</div>`;
   /* ردیف‌های داده‌ی غنی‌شده و مشتقات — فقط وقتی داده‌ی معتبر وجود دارد نمایش داده می‌شوند. */
   const mdRows = a.atr!=null ? [
     ['ATR (14) چهارساعته', a.atr.toFixed(2)+'%'],
@@ -1590,6 +1741,7 @@ function renderModalInfo(c){
     </div>`:''}
     ${a.gate&&a.gate.exempt?`<div class="gate-note" style="--gc:${GATE_STATES.exempt.c}"><b>${GATE_STATES.exempt.icon} ${esc(GATE_STATES.exempt.label)}</b><ul><li>${esc(a.gate.reasons[0]||'')}</li></ul></div>`:''}
     <div style="margin-top:10px;font-size:.75rem;color:var(--muted);border-top:1px dashed rgba(255,255,255,.12);padding-top:8px">🧮 لنگرهای محاسبه قیمت ورود (وزن‌دار): ${anchTxt}</div>
+    ${a.momo?'<div class="momoline">🚀 مسیر مومنتوم فعال است: ساختار ادامه‌روند سالم نزدیک سقف تأیید شده — آستانه‌های دروازه ۴ واحد امتیاز و ۰٫۳۵ واحد R/R تعدیل شده‌اند. ورود از پولبک پلکانی یا تثبیت روی شکست؛ تعقیب سبزِ بدون حجم همچنان رد می‌شود.</div>':''}
     <div style="margin-top:6px;font-size:.78rem">امتیاز فرصت خرید: <b style="color:${a.gradeC}">${a.buyScore}/100 (${esc(a.grade)})</b> • اطمینان ${a.conf}٪ • نوسان ${esc(a.risk)}</div>`;
   const mdBadge = a.mdQuality==='full' ? `<span class="mdq full" title="کندل چهارساعته و حجم ساعتی برای این ارز تحلیل شده است — ATR و تأیید حجم فعال است">⚡ داده‌ی غنی‌شده</span>`
     : a.mdQuality==='partial' ? `<span class="mdq part" title="فقط بخشی از داده‌ی کندل/حجم موجود است">⚡ داده‌ی ناقص</span>`
@@ -1619,11 +1771,14 @@ function drawMain(prices,times){
   const a=state.modalCoin.a; const n=prices.length;
   const sma20=SMA(prices,20), sma50=SMA(prices,50), bb=BB(prices,20,2);
   const showPred=$('#ovPred').checked; const fut=showPred?Math.round(n*0.18):0;
-  const sp=$('#ovShort').checked&&state.tf===7&&a.plans?.short?.valid?a.plans.short:null;
+  const sp=$('#ovShort').checked&&a.plans?.short?.valid?a.plans.short:null;
+  const lg=$('#ovPlan')&&$('#ovPlan').checked&&a.ok?{entry:a.entry,entryLo:a.entryLo,entryHi:a.entryHi,
+    stop:a.stop,tp1:a.tp1,tp2:a.tp2,ladder:a.ladder,avg:a.avgEntry}:null;
   const lastP=prices[n-1];
   let all=[...prices]; if($('#ovBB').checked) all=all.concat(bb.up.filter(v=>v!=null),bb.lo.filter(v=>v!=null));
   if(showPred) all.push(lastP*(1+a.predHi/100),lastP*(1+a.predLo/100));
-  if(sp) all.push(sp.entry,sp.stop,sp.tp1,sp.tp2);
+  if(sp&&state.tf===7) all.push(sp.entry,sp.stop,sp.tp1,sp.tp2);
+  if(lg&&state.tf===7) all.push(a.stop,a.tp1,a.tp2,a.entry);
   let mn=Math.min(...all), mx=Math.max(...all); const pd=(mx-mn)*0.05; mn-=pd; mx+=pd;
   const X=i=>pad.l+(W-pad.l-pad.r)*i/(n-1+fut), Y=v=>pad.t+(H-pad.t-pad.b)*(1-(v-mn)/(mx-mn));
   drawGrid(ctx,W,H,pad,mn,mx,v=>fmtP(v).replace('$',''));
@@ -1648,10 +1803,63 @@ function drawMain(prices,times){
     ctx.fillStyle='#00d4ff'; ctx.textAlign='left'; ctx.fillText('پیش‌بینی ۷ روزه ⟶',x0+6,pad.t+10);
     ctx.fillStyle='rgba(255,255,255,.04)'; ctx.fillRect(x0,pad.t,x1-x0,H-pad.t-pad.b); }
   ctx.font='10px Vazirmatn'; ctx.textAlign='left'; let lx=pad.l+4, ly=H-pad.b-8; const leg=[[col,'قیمت'],['#fbbf24','SMA20'],['#00d4ff','SMA50'],['rgba(124,92,255,.8)','بولینگر']]; leg.forEach(([c,t])=>{ ctx.fillStyle=c; ctx.fillRect(lx,ly-6,10,3); ctx.fillStyle='#8a94ad'; ctx.fillText(t,lx+13,ly); lx+=ctx.measureText(t).width+28; });
+  /* ---------- لایه‌ی سطوح معامله — لانگ و شورت با گرافیک هم‌ارز ---------- */
+  const Yc=v=>clamp(Y(v),pad.t+8,H-pad.b-2);      // برچسب‌های خارج از بوم، به لبه کلَمپ می‌شوند
+  const level=(v,label,color,dash=[4,4],yLabel)=>{
+    const y=Y(v); const yl=yLabel??Yc(v);
+    ctx.strokeStyle=color; ctx.setLineDash(dash); ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(pad.l,y); ctx.lineTo(W-pad.r,y); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle=color; ctx.textAlign='right'; ctx.font='10px Vazirmatn';
+    ctx.fillText(label,W-pad.r-6,yl-3);
+  };
+  const zone=(lo,hi,color)=>{ ctx.fillStyle=color; ctx.fillRect(pad.l,Y(hi),W-pad.l-pad.r,Math.max(1.5,Y(lo)-Y(hi))); };
+  const marker=(x,y,color,up)=>{ ctx.fillStyle=color; ctx.beginPath();
+    if(up){ ctx.moveTo(x,y-7); ctx.lineTo(x-4.5,y); ctx.lineTo(x+4.5,y); }
+    else  { ctx.moveTo(x,y+7); ctx.lineTo(x-4.5,y); ctx.lineTo(x+4.5,y); }
+    ctx.closePath(); ctx.fill(); };
+  if(lg){
+    zone(a.entryLo,a.entryHi,'rgba(0,230,118,.08)');
+    (a.ladder||[]).forEach((s2,i)=>{ if(i<2) level(s2.p,`${s2.t} ${Math.round(s2.w)}٪`,'rgba(0,230,118,.35)',[2,5]); });
+    level(a.entry,'ورود (بهترین)','#00e676',[5,4]);
+    level(a.avgEntry,'میانگین پلکانی','rgba(0,230,118,.8)',[1,3]);
+    level(a.stop,'حد ضرر لانگ','#ef4444',[5,4]);
+    level(a.tp1,'هدف ۱ لانگ','#4ade80',[4,4]);
+    level(a.tp2,'هدف ۲ لانگ','#a78bfa',[2,4]);
+    if(state.tf===7&&lastP<=a.entryHi&&lastP>=a.entry*0.985) marker(X(n-1),Y(lastP),'#00e676',true);
+  }
   if(sp){
-    [[sp.entry,'ورود شورت','#fbbf24'],[sp.stop,'حد ضرر شورت','#fb7185'],[sp.tp1,'هدف ۱ شورت','#00d4ff'],[sp.tp2,'هدف ۲ شورت','#a78bfa']].forEach(([v,label,color])=>{
-      ctx.strokeStyle=color;ctx.setLineDash([3,4]);ctx.beginPath();ctx.moveTo(pad.l,Y(v));ctx.lineTo(W-pad.r,Y(v));ctx.stroke();ctx.setLineDash([]);ctx.fillStyle=color;ctx.textAlign='right';ctx.fillText(label,W-pad.r-6,Y(v)-4);
-    });
+    zone(sp.entryLo,Math.max(sp.entryHi,sp.entry*1.0001),'rgba(251,113,133,.10)');
+    level(sp.entry,'حداقل ورود شورت','#fbbf24',[5,4]);
+    level(sp.stop,'حد ضرر شورت','#fb7185',[5,4]);
+    level(sp.tp1,'هدف ۱ شورت','#00d4ff',[4,4]);
+    level(sp.tp2,'هدف ۲ شورت','#a78bfa',[2,4]);
+    const stTag=sp.state==='ready'?(sp.betterFill?'✅ آماده ورود — قیمت بهتر از حداقل':'✅ آماده ورود'):'⏳ منتظر پولبک';
+    ctx.fillStyle=sp.state==='ready'?'#fbbf24':'#8a94ad'; ctx.textAlign='right'; ctx.font='11px Vazirmatn';
+    ctx.fillText(`شورت ${stTag} • ${sp.score}/100`, W-pad.r-6, Yc(Math.max(sp.stop,sp.entry*1.004))-8);
+    if(state.tf===7&&lastP>=sp.entryLo&&lastP<sp.stop) marker(X(n-1),Y(lastP),'#fb7185',false);
+  }
+  /* ---------- 🔁 لایه‌ی بازپخش کارنامه ---------- */
+  const rp=state.replay;
+  if(rp&&rp.prices===prices){
+    const isShort=rp.rec.side==='short';
+    const cur=clamp(rp.i,0,n-1);
+    ctx.fillStyle='rgba(124,92,255,.06)'; ctx.fillRect(X(rp.lo),pad.t,Math.max(1,X(cur)-X(rp.lo)),H-pad.t-pad.b);
+    // رویدادهای لمس هدف/حدضرر تا اینجا
+    for(let j=Math.max(1,rp.lo);j<=cur;j++){
+      const p0=prices[j-1], p1=prices[j];
+      const hitTp = isShort? (p1<=rp.rec.tp1 && p0>rp.rec.tp1) : (p1>=rp.rec.tp1 && p0<rp.rec.tp1);
+      const hitSl = isShort? (p1>=rp.rec.stop && p0<rp.rec.stop) : (p1<=rp.rec.stop && p0>rp.rec.stop);
+      if(hitTp||hitSl){
+        ctx.fillStyle=hitTp?'#00e676':'#ef4444'; ctx.font='12px Vazirmatn'; ctx.textAlign='center';
+        ctx.fillText(hitTp?(isShort?'🎯':'🎯'):'🛑', X(j), Y(p1)+(isShort&&!hitTp?-10:18));
+      }
+    }
+    ctx.strokeStyle='rgba(255,255,255,.5)'; ctx.setLineDash([2,3]); ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(X(cur),pad.t); ctx.lineTo(X(cur),H-pad.b); ctx.stroke(); ctx.setLineDash([]);
+    ctx.beginPath(); ctx.arc(X(cur),Y(prices[cur]),4.5,0,Math.PI*2); ctx.fillStyle='#fff'; ctx.fill();
+    ctx.strokeStyle='#7c5cff'; ctx.lineWidth=2; ctx.stroke();
+    ctx.fillStyle='#c4b5fd'; ctx.font='10px Vazirmatn'; ctx.textAlign='right';
+    ctx.fillText(`بازپخش ${cur-rp.lo+1}/${Math.max(1,rp.hi-rp.lo+1)} ساعت`, W-pad.r-6, pad.t+11);
   }
   mainMeta={prices,times,X,Y,n,sma20,sma50,sup,res};
 }
@@ -1998,9 +2206,11 @@ function perfOpen(c){
   const a=c.a;
   if(perf.rec.some(r=>r.id===c.id && r.open)) return;
   if(!(a.tp1>c.current_price*1.004 && a.stop<c.current_price*0.996)) return;
+  const rc=riskCfg();
   perf.rec.push({ side:'long', version:'legacy-long-v1', id:c.id, sym:c.symbol.toUpperCase(), name:c.name, img:c.image,
     t0:Date.now(), p0:c.current_price, entry:a.entry, tp1:a.tp1, stop:a.stop,
     score:a.score, buyScore:a.buyScore, grade:a.grade, cat:a.cat, pred:a.pred,
+    feePct:Math.max(0,+rc.feePct||0), fundingAnnual:Number.isFinite(a.fundingAnnual)?a.fundingAnnual:null,   // لانگ فاندینگ مثبت را می‌پردازد
     open:true, peak:c.current_price, trough:c.current_price, last:c.current_price });
 }
 
@@ -2018,7 +2228,18 @@ function perfEvaluate(){
       const ret=(px/r.p0-1)*100;
       r.open=false; r.result = ret>1?'win':(ret<-1?'loss':'flat'); r.why='سررسید ۷ روزه ⏰';
     }
-    if(!r.open){ r.t1=now; r.ret=(px/r.p0-1)*100; r.mfe=(r.peak/r.p0-1)*100; r.mae=(r.trough/r.p0-1)*100; closed++; }
+    if(!r.open){
+      r.t1=now; r.ret=(px/r.p0-1)*100; r.mfe=(r.peak/r.p0-1)*100; r.mae=(r.trough/r.p0-1)*100;
+      /* خالص پس از هزینه: کارمزد دو طرف + فاندینگ دوره (لانگ فاندینگ مثبت را می‌پردازد) */
+      if(Number.isFinite(r.feePct)&&r.feePct>=0){
+        const days=Math.min(7,Math.max(0,(now-(r.t0||now))/864e5));
+        const f=Number.isFinite(r.fundingAnnual)?r.fundingAnnual*days/365:0;
+        r.costPct=r.feePct*2; r.fundingPnlPct=-f;
+        const net=r.ret-r.costPct-f;
+        if(Number.isFinite(net)) r.retNet=net;
+      }
+      closed++;
+    }
   });
   if(closed) perfSave();
   return closed;
@@ -2038,8 +2259,10 @@ function perfStats(){
   const avgWin=wins.length? wins.reduce((a,b)=>a+b,0)/wins.length:0, avgLoss=lss.length? Math.abs(lss.reduce((a,b)=>a+b,0)/lss.length):0;
   const pw=done.length? wins.length/done.length:0;
   const expectancy=done.length? pw*avgWin-(1-pw)*avgLoss : null;
+  const netRecs=done.filter(r=>Number.isFinite(r.retNet));
+  const avgNet=netRecs.length? netRecs.reduce((a,b)=>a+b.retNet,0)/netRecs.length : null;
   return {done:done.length, open:perf.rec.filter(r=>r.open).length, win, loss, flat,
-    acc: decided? win/decided*100 : null, avg, avgWin, avgLoss, expectancy,
+    acc: decided? win/decided*100 : null, avg, avgWin, avgLoss, expectancy, avgNet, netN:netRecs.length,
     best: rets.length?Math.max(...rets):0, worst: rets.length?Math.min(...rets):0,
     pf: losses>0? gains/losses : (gains>0?Infinity:0)};
 }
@@ -2061,7 +2284,8 @@ function renderPerf(){
     ['میانگین بازده', st.done?pct(st.avg,2):'—'],['بهترین', st.done?pct(st.best,1):'—'],
     ['بدترین', st.done?pct(st.worst,1):'—'],['فاکتور سود', st.done?pf:'—'],
     ['میانگین برد', st.done?pct(st.avgWin,1):'—'],['میانگین باخت', st.done?'−'+st.avgLoss.toFixed(1)+'%':'—'],
-    ['امید ریاضی/سیگنال', st.expectancy!=null?pct(st.expectancy,2):'—']]
+    ['امید ریاضی/سیگنال', st.expectancy!=null?pct(st.expectancy,2):'—'],
+    ['میانگین خالص (کارمزد+فاندینگ)', st.avgNet!=null?pct(st.avgNet,2)+` • ${st.netN}/${st.done} رکورد`:st.done?'کارمزد ثبت نشده':'—']]
     .map(([k,v])=>`<div>${esc(k)}<b>${esc(v)}</b></div>`).join('');
 
   const open=perf.rec.filter(r=>r.open).slice(-25).reverse();
@@ -2073,7 +2297,7 @@ function renderPerf(){
       <img src="${safeImg(r.img)}" alt="" loading="lazy">
       <div class="t"><b>${esc(r.sym)}</b> <span class="mini">ورود ${fmtP(r.p0)} • هدف ${fmtP(r.tp1)} • حد ${fmtP(r.stop)} • ${esc(r.grade||'')}</span></div>
       <span class="pnl ${ret>=0?'up':'down'}">${pct(ret,1)}</span>
-      <span class="tm">${days>=1? days.toFixed(0)+' روز':'<۱ روز'}</span></div>`;
+      <span class="tm">${days>=1? days.toFixed(0)+' روز':'<۱ روز'}</span><button class="rp-mini" data-action="replay" data-kind="long" data-id="${esc(r.id)}" title="بازپخش روی نمودار">🔁</button></div>`;
   }).join('') : '<div class="empty" style="padding:20px;font-size:.8rem">سیگنال بازی وجود ندارد. با ورود ارزی به «خرید قوی» یا امتیاز خرید ≥۷۸ و عبور از دروازه، رکورد ثبت می‌شود.</div>';
 
   const closed=perf.rec.filter(r=>!r.open).slice(-30).reverse();
@@ -2082,9 +2306,9 @@ function renderPerf(){
     const col=r.result==='win'?'#22c55e':r.result==='loss'?'#ef4444':'#94a3b8';
     return `<div class="res" style="--rc:${col}" data-action="open" data-id="${esc(r.id)}" role="button" tabindex="0">
       <img src="${safeImg(r.img)}" alt="" loading="lazy">
-      <div class="t"><b>${ic} ${esc(r.sym)}</b> <span class="mini">${esc(r.why||'')} • ${pct(r.ret||0,1)}</span></div>
+      <div class="t"><b>${ic} ${esc(r.sym)}</b> <span class="mini">${esc(r.why||'')} • ${pct(r.ret||0,1)}${Number.isFinite(r.retNet)?` • پس از هزینه ${pct(r.retNet,1)}`:''}</span></div>
       <span class="pnl" style="color:${col}">${pct(r.ret||0,1)}</span>
-      <span class="tm">${faTime(r.t1||r.t0)}</span></div>`;
+      <span class="tm">${faTime(r.t1||r.t0)}</span><button class="rp-mini" data-action="replay" data-kind="long" data-id="${esc(r.id)}" title="بازپخش روی نمودار">🔁</button></div>`;
   }).join('') : '<div class="empty" style="padding:20px;font-size:.8rem">هنوز نتیجه‌ای نهایی نشده است — پس از ۷ روز یا برخورد به هدف/حد ضرر، اینجا نمایش داده می‌شود.</div>';
 }
 
@@ -2093,6 +2317,89 @@ function perfCycle(){
   perfEvaluate();
   state.coins.forEach(c=>{ if(longCandidate(c)) perfOpen(c); });
   perfSave(); renderPerf();
+}
+
+/* =====================================================================
+   🔁 بازپخش کارنامه — پخش مجدد یک رکورد (لانگ یا شورت) روی نمودار همان ارز
+   داده همان sparkline ۷ روزه است؛ بازپخش نمایشی است، نه اجرا.
+   ===================================================================== */
+let replayTimer=null;
+function replayKindFor(id){
+  const l=perf.rec.filter(r=>r.id===id).pop(), s=shorts.records.filter(r=>r.id===id).pop();
+  if(!l&&!s) return null;
+  const lt=l?(l.opened||l.t0||l.created||0):0, st=s?(s.opened||s.created||0):0;
+  return st>lt?'short':'long';
+}
+function findReplayRec(kind,id){
+  const src = kind==='short' ? shorts.records : perf.rec;
+  const list=[...src].reverse().filter(r=>r.id===id);
+  if(!list.length) return null;
+  const r=list[0];
+  const t0=r.opened||r.t0||r.created||Date.now();
+  const t1=r.closed||r.t1||(t0+3600e3);
+  return { kind, id, sym:(r.sym||'').toUpperCase(), side:r.side||(kind==='short'?'short':'long'),
+    t0, t1:Math.max(t1,t0+3600e3), entry:r.fill??r.p0, stop:r.stop, tp1:r.tp1, tp2:r.tp2,
+    ret:Number.isFinite(r.ret)?r.ret:null, status:r.status };
+}
+async function openReplay(kind,id){
+  const rec=findReplayRec(kind,id);
+  if(!rec){ toast('رکورد فعال/بسته‌ای برای بازپخش این ارز پیدا نشد'); return; }
+  await openModal(id);
+  const c=state.modalCoin; if(!c||!c.a||!c.a.prices||!c.a.prices.length) return;
+  const prices=c.a.prices, n=prices.length, now=Date.now();
+  const times=prices.map((_,i)=>now-(n-1-i)*3600e3);
+  let lo=0, hi=n-1;
+  for(let i=0;i<n;i++){ if(times[i]>=rec.t0){ lo=i; break; } }
+  for(let i=n-1;i>=0;i--){ if(times[i]<=rec.t1){ hi=Math.max(i,lo+1); break; } }
+  state.replay={ kind, id, rec, prices, times, lo, hi, i:lo, speed:1, on:false, outside:times[0]>rec.t0+3600e3 };
+  if(replayTimer) clearInterval(replayTimer);
+  replayTimer=setInterval(replayAdvance,1000);
+  loadAndDrawChart(); renderReplayBar();
+  if(hi-lo<2) toast('پنجره‌ی این رکورد تقریباً بیرون نمودار ۷ روزه است — بازپخش کوتاه می‌شود');
+}
+function replayAdvance(){
+  const s=state.replay;
+  if(!s) return;
+  if(!$('#modal') || !$('#modal').classList.contains('open')) return;
+  if(!s.on) return;
+  s.i=Math.min(s.hi, s.i + (s.speed||1));
+  if(s.i>=s.hi) s.on=false;
+  renderReplayBar();
+  if(mainMeta) drawMain(mainMeta.prices,mainMeta.times);
+}
+function replayControl(act,val){
+  const s=state.replay; if(!s) return;
+  if(act==='play'){ if(s.i>=s.hi) s.i=s.lo; s.on=!s.on; }
+  else if(act==='back') { s.i=s.lo; s.on=false; }
+  else if(act==='fwd') { s.i=Math.min(s.hi,s.i+1); s.on=false; }
+  else if(act==='speed') s.speed=+val||1;
+  else if(act==='seek') s.i=clamp(Math.round(+val||0),s.lo,s.hi);
+  else if(act==='close'){ stopReplay(); return; }
+  renderReplayBar();
+  if(mainMeta) drawMain(mainMeta.prices,mainMeta.times);
+}
+function stopReplay(){
+  state.replay=null;
+  if(replayTimer){ clearInterval(replayTimer); replayTimer=null; }
+  const bar=$('#replayBar'); if(bar){ bar.innerHTML=''; bar.style.display='none'; }
+  if($('#modal')&&$('#modal').classList.contains('open')&&mainMeta) drawMain(mainMeta.prices,mainMeta.times);
+}
+function renderReplayBar(){
+  const bar=$('#replayBar'); if(!bar) return;
+  const s=state.replay;
+  if(!s){ bar.innerHTML=''; bar.style.display='none'; return; }
+  bar.style.display='';
+  const px=s.prices[s.i], t=s.times[s.i]??Date.now(), r=s.rec;
+  const isShort=s.side==='short';
+  const dTp=px!=null&&Number.isFinite(r.tp1)?(isShort?(px-r.tp1)/px*100:(r.tp1-px)/px*100):null;
+  const dSl=px!=null&&Number.isFinite(r.stop)?(isShort?(r.stop-px)/px*100:(px-r.stop)/px*100):null;
+  const fmtT=v=>new Date(v).toLocaleString('fa-IR',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
+  bar.innerHTML=`<div class="rp-row"><b>🔁 بازپخش ${esc(r.sym)} • ${isShort?'شورت':'لانگ'} • ${esc(r.status)}</b>
+    <button data-rp="back" title="ابتدای بازه">⏮</button><button data-rp="play">${s.on?'⏸ توقف':'▶ پخش'}</button><button data-rp="fwd" title="یک گام">⏭</button>
+    <select data-rp="speed" aria-label="سرعت پخش">${[1,4,16].map(v=>`<option value="${v}"${s.speed===v?' selected':''}>${v===1?'۱':v===4?'۴':'۱۶'}× / ساعت</option>`).join('')}</select>
+    <input type="range" data-rp="seek" dir="ltr" min="${s.lo}" max="${s.hi}" value="${s.i}" aria-label="جابه‌جایی در بازه">
+    <span class="rp-info">${fmtT(t)} • <b>${fmtP(px)}</b>${dTp!=null?` • تا هدف <b>${pct(dTp,1)}</b>`:''}${dSl!=null?` • تا حد ضرر <b>${pct(dSl,1)}</b>`:''} • بازده نهایی رکورد: <b>${r.ret==null?'—':pct(r.ret)}</b>${s.outside?' • ابتدای رکورد پیش از پنجره ۷ روزه بود':''}</span>
+    <button data-rp="close" title="بستن بازپخش">✕</button></div>`;
 }
 
 /* =====================================================================
@@ -2158,8 +2465,9 @@ function renderCmp(){
    ماشین‌حساب حجم معامله — بر پایه سرمایه و درصد ریسک
    ===================================================================== */
 function riskCfg(){
-  let d={cap:1000, pct:2};
+  let d={cap:1000, pct:2, feePct:0.05};   // feePct = کارمزد هر طرف (٪) برای برآورد هزینه در کارنامه
   try{ d=Object.assign(d, JSON.parse(localStorage.getItem(LS_KEYS.risk)||'{}')); }catch(e){}
+  if(!Number.isFinite(d.feePct)||d.feePct<0||d.feePct>1) d.feePct=0.05;
   return d;
 }
 function riskSave(cfg){ try{ localStorage.setItem(LS_KEYS.risk, JSON.stringify(cfg)); }catch(e){} }
@@ -2188,6 +2496,7 @@ function renderCalc(c){
     <div class="fields">
       <div><label for="capIn">سرمایه کل (دلار)</label><input id="capIn" type="number" min="1" step="any" value="${cfg.cap}" aria-label="سرمایه کل"></div>
       <div><label for="pctIn">ریسک هر معامله (٪ از سرمایه)</label><input id="pctIn" type="number" min="0.1" max="100" step="0.1" value="${cfg.pct}" aria-label="درصد ریسک"></div>
+      <div><label for="feeIn">کارمزد هر طرف (٪) — برای «خالص» کارنامه</label><input id="feeIn" type="number" min="0" max="1" step="0.01" value="${cfg.feePct}" aria-label="کارمزد هر طرف"></div>
     </div>
     <div class="out">
       <div>مقدار خرید<b>${fmtN(r.units, r.units<1?6:4)} ${esc(c.symbol.toUpperCase())}</b></div>
@@ -2196,13 +2505,15 @@ function renderCalc(c){
       <div>سود در هدف ۱<b class="up">+$${fmtN(r.gainAtTp1,2)}</b></div>
       <div>سود در هدف ۲<b class="up">+$${fmtN(r.gainAtTp2,2)}</b></div>
       <div>ریسک/بازده<b>${r.rr.toFixed(2)}:1</b></div>
+      <div>کارمزد دو طرف (تقریبی)<b>−$${fmtN((2*r.cost+r.gainAtTp1)*cfg.feePct/100,2)} <span class="mini">${cfg.feePct}٪ هر طرف؛ در «میانگین خالص» کارنامه کسر می‌شود</span></b></div>
     </div>
     ${r.capped?'<div class="warn">⚠️ حجم محاسبه‌شده از کل سرمایه بیشتر بود و به سقف سرمایه محدود شد؛ یعنی حد ضرر نسبت به ریسک انتخابی خیلی نزدیک است — درصد ریسک را کم کنید یا حد ضرر را بازتر بگذارید.</div>':''}
     ${cfg.pct>5?'<div class="warn">⚠️ ریسک بیش از ۵٪ در هر معامله بالاست؛ مدیریت سرمایه معمولاً ۱ تا ۲٪ را توصیه می‌کند تا در رشته باخت‌ها سرمایه حفظ شود.</div>':''}
     <div class="mini" style="margin-top:8px">فرمول: مقدار = (سرمایه × درصد ریسک) ÷ (ورود − حد ضرر) • ارزش = مقدار × ورود</div>`;
   const upd=()=>{ const cap=Math.max(1, parseFloat($('#capIn').value)||0), pctVal=clamp(parseFloat($('#pctIn').value)||0,0.1,100);
-    riskSave({cap,pct:pctVal}); const current=state.coins.find(x=>x.id===c.id)||c; renderCalc(current); renderShorts(); $('#mshort').innerHTML=shortDetails(current); };
-  $('#capIn').onchange=upd; $('#pctIn').onchange=upd;
+    const fee=clamp(parseFloat($('#feeIn')?.value)||0,0,1);
+    riskSave({cap, pct:pctVal, feePct:fee}); const current=state.coins.find(x=>x.id===c.id)||c; renderCalc(current); renderShorts(); $('#mshort').innerHTML=shortDetails(current); };
+  $('#capIn').onchange=upd; $('#pctIn').onchange=upd; if($('#feeIn')) $('#feeIn').onchange=upd;
 }
 
 /* ------------------------- خروجی CSV ------------------------- */
@@ -2250,9 +2561,12 @@ document.addEventListener('click',e=>{
   const el=e.target?.closest?.('[data-action]'); if(!el) return;
   const {action,id}=el.dataset;
   if(action==='open') openModal(id);
+  else if(action==='replay'){ e.stopPropagation(); openReplay(el.dataset.kind||'long', id); }
   else if(action==='watch'){ e.stopPropagation(); toggleWatch(id); }
   else if(action==='compare'){ e.stopPropagation(); toggleCmp(id); }
 });
+$('#replayBar')?.addEventListener?.('click',e=>{ const b=e.target.closest?.('[data-rp]'); if(b&&b.dataset.rp!=='speed') replayControl(b.dataset.rp); });
+$('#replayBar')?.addEventListener?.('input',e=>{ const b=e.target.closest?.('[data-rp]'); if(!b) return; if(b.dataset.rp==='seek') replayControl('seek',b.value); else if(b.dataset.rp==='speed') replayControl('speed',b.value); });
 document.addEventListener('keydown',e=>{
   if(e.key==='Escape' && $('#modal').classList.contains('open')){ closeModal(); return; }
   // کارت‌ها و ردیف‌های پویای کلیک‌پذیر باید با صفحه‌کلید نیز فعال شوند.
@@ -2261,7 +2575,7 @@ document.addEventListener('keydown',e=>{
   }
 });
 document.querySelectorAll('.tf').forEach(b=>b.onclick=()=>{ state.tf=+b.dataset.d; document.querySelectorAll('.tf').forEach(x=>{ const on=x===b; x.classList.toggle('active',on); x.setAttribute('aria-pressed', on?'true':'false'); }); loadAndDrawChart(); });
-['ovSma20','ovSma50','ovBB','ovPred','ovShort'].forEach(id=>{ const el=$('#'+id); if(el) el.onchange=()=>loadAndDrawChart(); });
+['ovSma20','ovSma50','ovBB','ovPred','ovShort','ovPlan'].forEach(id=>{ const el=$('#'+id); if(el) el.onchange=()=>loadAndDrawChart(); });
 let rz; window.addEventListener('resize',()=>{ clearTimeout(rz); rz=setTimeout(()=>{ renderList(); if($('#modal').classList.contains('open')) loadAndDrawChart(); },200); });
 
 /* ------------------------- Boot ------------------------- */
