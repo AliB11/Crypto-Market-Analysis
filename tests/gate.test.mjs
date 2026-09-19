@@ -172,6 +172,25 @@ test('کارنامه‌ی عملکرد: فقط سیگنال دارای مجوز 
   assert.equal(api.perf.rec.some(r=>r.id===blocked.id), true, 'در حالت خاموش باید سیگنال ثبت شود');
 });
 
+test('🚀 مسیر مومنتوم: فقط برای ادامه‌روندهای سالم — آستانه‌های تعدیل‌شده و تعقیبِ بی‌روند ممنوع',async()=>{
+  const {api}=boot('riskon');await settled(api);
+  // در این سناریو لینک پارابولیک است (RSI>۸۵) ⇒ مسیر نباید روشن شود
+  const link=api.state.coins.find(c=>c.id==='chainlink');
+  assert.notEqual(link.a.momo,true,'RSI اشباع نباید مجوز تعقیب قیمت بگیرد');
+  // یک ارزی که فقط با تعدیل‌های مسیر از دروازه عبور می‌کند
+  const c=api.state.coins.find(x=>x.id!=='bitcoin'&&x.a.ok&&api.trd(x)&&!x.a.momo);
+  c.a.momo=true; c.a.buyState='no'; c.a.entryGap=-9;
+  const rules=api.GATE_RULES[api.state.gate.macro];
+  const g=api.evalCoinGate(c,api.state.gate);
+  assert.equal(g.momo,true,'پرچم مسیر در خروجی دروازه نیست');
+  assert.equal(g.need.score,rules.score-4,'آستانه امتیاز باید دقیقاً ۴ واحد تعدیل شود');
+  assert.equal(g.need.rrNow,Math.max(0.55,rules.rrNow-0.35),'آستانه R/R باید ۰٫۳۵ واحد تعدیل شود');
+  assert.ok(g.need.states.includes('no'),'«فاصله زیاد» با تأیید مومنتوم قابل‌تحمل است (ورود از پلکان)');
+  c.a.momo=false;
+  const g3=api.evalCoinGate(c,api.state.gate);
+  assert.ok(!g3.need.states.includes('no'),'بدون مسیر مومنتوم، تعقیب قیمت مجاز نیست');
+});
+
 test('خروجی CSV: ستون دروازه با تعداد ستون‌های سرستون می‌خواند', async ()=>{
   const {api, getCsv}=boot('riskon'); await settled(api);
   api.exportCSV();
@@ -232,6 +251,20 @@ test('شورت: انتظار، ورود تأییدشده، سطوح ثابت، �
  assert.ok(api.mon.alerts.some(a=>a.kind==='short'));
  assert.equal(api.shorts.records.length,1);
 });
+test('شورت v2: پرش قیمت از باند = اجرای بهتر با قیمت زنده، نه ابطال',async()=>{
+ const {api,c}=await shortFixture();api.shortCycle();const r=api.shorts.records[0];
+ // باند ورود ۰٫۴٪ است؛ اگر قیمت بین دو چرخه از سقف باند بپرد، شورت باید در
+ // قیمتِ «بهتر» فعال شود (فروش گران‌تر = سود بیشتر)، نه باطل.
+ c.current_price=100.15;api.shortCycle();
+ assert.equal(r.status,'active','پرش از باند باید با قیمت بهتر اجرا شود');
+ assert.equal(r.fill,100.15);
+});
+test('شورت v2: تبدیل پولبک به شکست قدرتمند، ستاپ منتظر را باطل می‌کند',async()=>{
+ const {api,c}=await shortFixture();api.shortCycle();const r=api.shorts.records[0];
+ Object.assign(c.a,{macd:2,sig:1,hist:0.8,histPrev:0.2,rsi:70,rsiPrev:66});
+ c.current_price=100;api.shortCycle();
+ assert.equal(r.status,'cancelled','بازگشت قدرتمند باید ستاپ منتظر را بکشد');
+});
 test('شورت: آفلاین، تاریخ منبع کهنه و تعارض لانگ مانع ورود می‌شوند',async()=>{
  const {api,c}=await shortFixture();api.state.liveData=false;api.shortCycle();assert.equal(api.shorts.records.length,0);
  api.state.liveData=true;c.last_updated=new Date(Date.now()-3600000).toISOString();api.shortCycle();assert.equal(api.shorts.records.length,0);
@@ -243,7 +276,7 @@ test('شورت: پیش‌فرض خاموش، CSV جهت‌دار و نمایش �
  const initial=boot('riskoff');await settled(initial.api);assert.equal(initial.api.shorts.enabled,false);
  const {api,c,getCsv,store}=await shortFixture();api.shortCycle();api.renderShorts();api.renderModalInfo(c);
  assert.match(document_el('mshort').innerHTML,/شورت/);assert.match(document_el('shortPanel').innerHTML,/منتظر پولبک/);
- api.exportShortCSV();assert.match(getCsv(),/"side","version"/);assert.match(getCsv(),/short-pullback-v1/);
+ api.exportShortCSV();assert.match(getCsv(),/"side","version"/);assert.match(getCsv(),/short-pullback-v2/);
  assert.equal(JSON.parse(store.getItem('cb_short_v1')).records[0].side,'short');
 });
 
@@ -403,7 +436,7 @@ test('خروجی JSON در بازار ریزشی: شورت‌ها با نسخه�
   const p=api.buildSignalPayload({side:'short',filter:'all'});
   p.signals.forEach(s=>{
     assert.equal(s.side,'short');
-    assert.equal(s.strategyVersion,'short-pullback-v1','نسخه‌ی استراتژی شورت نادرست است');
+    assert.equal(s.strategyVersion,'short-pullback-v2','نسخه‌ی استراتژی شورت نادرست است');
     if(s.valid){
       assert.ok(s.exit.stop>s.entry.best,'در شورت حد ضرر باید بالای ورود باشد');
       assert.ok(s.exit.tp1<s.entry.best&&s.exit.tp2<s.exit.tp1,'ترتیب اهداف شورت نادرست است');

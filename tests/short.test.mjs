@@ -66,7 +66,35 @@ test('review: frozen levels remain usable when newly computed supports merge',()
  const c=coin(),old=plan(c);c.a.support=90;c.a.low7=90;
  assert.equal(plan(c).valid,false);
  const p=plan(c,regime,{...opts,levels:old});assert.equal(p.state,'ready');assert.equal(p.tp1,95);
- c.current_price=100.3;assert.equal(plan(c,regime,{...opts,levels:old}).state,'blocked');
+ // v2: قیمت بالاتر از باند = اجرای بهترِ شورت، پس «ready» باقی می‌ماند و باطل نمی‌شود
+ c.current_price=100.3;const p2=plan(c,regime,{...opts,levels:old});
+ assert.equal(p2.state,'ready');assert.equal(p2.betterFill,true);
+ // ولی چسبیدن به حد ضرر یا عبور از آن همچنان مسدود است
+ c.current_price=101.3;assert.equal(plan(c,regime,{...opts,levels:old}).state,'blocked');
+ c.current_price=100.75;assert.match(plan(c,regime,{...opts,levels:old}).gate.reasons.join('|'),/خیلی نزدیک/);
+});
+test('v2: rally INTO the zone must not cancel the setup on re-validation',()=>{
+ // قیمت در حال پولبک به ناحیه است: RSI و هیستو بالا می‌روند — ذاتِ یک rebound
+ const atEntry=plan(coin());                                   // ستاپ معتبر در قیمت ۱۰۰
+ const c=coin();c.current_price=100.15;
+ Object.assign(c.a,{rsi:51,rsiPrev:48,hist:-0.9,histPrev:-1.1}); // مومنتومِ لحظه‌ای صعودی
+ const fresh=plan(c);
+ assert.notEqual(fresh.state,'ready');
+ assert.match(fresh.gate.reasons.join('|'),/کاهش مومنتوم/);     // ساختِ تازه: شرط زمان ساخت همچنان پابرجاست
+ const rv=plan(c,regime,{...opts,levels:atEntry});
+ assert.equal(rv.state,'ready','اعتبارسنجیِ ورود نباید با شرطِ زمانِ ساخت مسدود شود');
+ assert.ok(rv.score>=atEntry.score,'کف امتیازِ زمان ساخت اعمال نشد');
+});
+test('v2: strong momentum re-acceleration kills the waiting short (pullback became breakout)',()=>{
+ const atEntry=plan(coin());
+ const c=coin();c.current_price=100;Object.assign(c.a,{macd:1.5,sig:0.5,hist:0.9,histPrev:0.4,rsi:68,rsiPrev:64});
+ assert.equal(plan(c,regime,{...opts,levels:atEntry}).state,'blocked');
+ assert.match(plan(c,regime,{...opts,levels:atEntry}).gate.reasons.join('|'),/شکست قدرتمند/);
+});
+test('v2: legacy v1 records restore; unknown versions still rejected',()=>{
+ const rec={...plan(coin()),side:'short',version:'short-pullback-v1',id:'x',sym:'X',status:'waiting',created:1000};
+ assert.equal(E.restoreRecords([rec]).length,1,'رکوردهای v1 باید پس از ارتقا خوانده شوند');
+ assert.equal(E.restoreRecords([{...rec,version:'short-pullback-v0'}]).length,0);
 });
 test('review: NaN RSI/history/relative strength and missing BTC never pass',()=>{
  for(const k of ['rsi','rsiPrev','hist','histPrev','rs7','ch24']){const c=coin();c.a[k]=NaN;assert.equal(plan(c).state,'blocked');}

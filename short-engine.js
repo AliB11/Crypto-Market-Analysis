@@ -1,7 +1,16 @@
-/* Independent, price-only research strategy. No orders, leverage or execution claims. */
+/* Independent, price-only research strategy. No orders, leverage or execution claims.
+   v2 corrections (360° review):
+   * A short's entry level is a MINIMUM acceptable price. If price runs above the
+     recorded band but is still under the stop and R/R from the live price holds,
+     that is a BETTER fill, not a broken setup — it must not be discarded.
+   * Re-validation of a waiting record (options.levels present) must not re-apply
+     creation-only conditions (pullback momentum decay, creation score) — a rally
+     INTO the sell zone by definition rises RSI/histogram. It re-checks safety,
+     geometry, freshness, regime and R/R from live price only. */
 (function(root){
   'use strict';
-  const VERSION='short-pullback-v1';
+  const VERSION='short-pullback-v2';
+  const LEGACY_VERSIONS=['short-pullback-v1'];   // stored history remains readable
   const finite=x=>Number.isFinite(x)&&x>0;
   const clamp=(x,l,h)=>Math.max(l,Math.min(h,x));
   function plan(c, regime, options={}){
@@ -39,9 +48,15 @@
     p.riskPct=(stop-entry)/entry*100;
     const bearish=px<a.sma50&&a.sma20<a.sma50&&a.slopeH<0;
     const momentum=a.macd<a.sig&&a.hist<a.histPrev&&a.rsi<a.rsiPrev;
+    /* conditions that only make sense when the plan is CREATED. A waiting
+       record re-validates with options.levels: price rallying INTO the sell zone
+       lifts RSI/histogram by construction — re-applying the creation-time decay
+       requirement would cancel the setup exactly at its fill moment. */
+    const revalidate=!!options.levels;
     let score=35;
     if(bearish) score+=20;
     if(momentum) score+=18;
+    else if(revalidate && !(a.macd>a.sig&&a.hist>a.histPrev&&a.rsi>62)) score+=18;
     if(a.diverg==='bear'||a.diverg==='hBear') score+=8;
     if(a.macdCross==='bear') score+=5;
     score+=clamp(-(a.rs7||0),-10,10);
@@ -59,12 +74,18 @@
       if(funding<=-40) score-=10;
       if(funding<=-20 && a.oiChangePct!=null && a.oiChangePct>=3) score-=6;
     }
-    p.score=Math.round(clamp(score,0,100));
+    // creation-validated score is a floor for fill re-validation, never for display
+    const floorScore=Number.isFinite(options.levels?.score)?options.levels.score:null;
+    p.score=Math.round(clamp(revalidate&&floorScore!=null?Math.max(score,floorScore):score,0,100));
     // Hard safety checks are never bypassed by disabling the regime filter.
     if(options.benchmarkFresh===false) reasons.push('داده تازه بیت‌کوین برای رژیم و قدرت نسبی موجود نیست');
     if(!options.fresh) reasons.push('داده زنده و تازه نیست؛ ورود جدید غیرفعال');
     if(!bearish) reasons.push('ساختار نزولی تأیید نشده');
-    if(!momentum) reasons.push('کاهش مومنتوم و RSI برای تأیید برگشت پولبک لازم است');
+    if(!momentum&&!revalidate) reasons.push('کاهش مومنتوم و RSI برای تأیید برگشت پولبک لازم است');
+    /* در اعتبارسنجیِ ورودِ منتظر، رشدهای لحظه‌ای مجاز است (قیمت دارد به ناحیه
+       فروش می‌رسد) اما «بازگشت قدرتمند» نه: MACD بالای سیگنال + هیستوی رو به
+       رشد + RSI بالا یعنی پولبک به شکست تبدیل شده و ستاپ مرده است. */
+    if(revalidate&&a.macd>a.sig&&a.hist>a.histPrev&&a.rsi>62) reasons.push('پولبک به شکست قدرتمند تبدیل شده؛ ستاپ شورت باطل است');
     if(!Number.isFinite(a.volRatio)||a.volRatio<0.008) reasons.push('نقدشوندگی ناکافی');
     if(a.rsi<30||a.diverg==='bull'||a.diverg==='hBull') reasons.push('خطر بازگشت صعودی / اشباع فروش');
     if(px<=tp1||((px-tp1)/px)<vol*0.5) reasons.push('قیمت بیش از حد به حمایت نزدیک است');
@@ -84,12 +105,19 @@
     }
     if(options.conflict) reasons.push('تعارض با ورود تأییدشده لانگ');
     if(reasons.length) return p;
-    if(px>p.entryHi||px>=stop){reasons.push('قیمت از محدوده ورود ثبت‌شده عبور کرده است');return p;}
-    const inZone=px>=p.entryLo&&px<=p.entryHi;
-    if(inZone&&p.rrNow<minRR){ reasons.push('ریسک/بازده قیمت فعلی ناکافی');return p; }
-    p.state=inZone?'ready':'waiting'; p.gate.state=inZone?'open':'watch';
+    /* ورود شورت یعنی «فروش در entry یا بالاتر» تا پیش از حد ضرر. پس:
+       قیمت بالای باند ثبت‌شده = قیمت اجرای بهتر (نه رد ستاپ)؛ تنها شرط،
+       حفظ R/R از قیمت زنده است. کفِ فاصله از حد ضرر هم لازم است، چون درست
+       زیر stop عدد R/R مصنوعی بزرگ می‌شود و یک لغزش کوچک فوراً فعالش می‌کند. */
+    const stopBuffer=stop*(1-vol*0.5);
+    if(px>=stop){reasons.push('قیمت به حد ضرر رسیده یا از آن عبور کرده است');return p;}
+    if(px>=stopBuffer){reasons.push('قیمت به حد ضرر خیلی نزدیک است؛ ورود در این نقطه با یک لغزش کوچک فوراً با حد ضرر بسته می‌شود');return p;}
+    const fillable=px>=p.entryLo;
+    if(fillable&&p.rrNow<minRR){ reasons.push('ریسک/بازده قیمت فعلی ناکافی');return p; }
+    p.state=fillable?'ready':'waiting'; p.gate.state=fillable?'open':'watch';
+    p.betterFill=px>p.entryHi;
     p.fundingAnnual=a.fundingAnnual??null; p.oiChangePct=a.oiChangePct??null; p.crowd=a.crowd||null;
-    reasons.push(inZone?'پولبک در محدوده و مومنتوم نزولی تأیید شده':'انتظار پولبک به محدوده؛ هنوز ورود انجام نشده');
+    reasons.push(fillable?(p.betterFill?'ورود در قیمت فعلی — بهتر از حداقل ثبت‌شده تأیید شد':'پولبک در محدوده و شرایط نزولی تأیید شده'):'انتظار پولبک به محدوده؛ هنوز ورود انجام نشده');
     return p;
   }
   function position(p,cfg){
@@ -115,7 +143,7 @@
   function restoreRecords(items){
     if(!Array.isArray(items))return [];
     return keepRecords(items.filter(r=>{
-      if(!r||r.side!=='short'||r.version!==VERSION||typeof r.id!=='string'||typeof r.sym!=='string')return false;
+      if(!r||r.side!=='short'||!(r.version===VERSION||LEGACY_VERSIONS.includes(r.version))||typeof r.id!=='string'||typeof r.sym!=='string')return false;
       if(!['waiting','active','win','loss','expired','cancelled'].includes(r.status))return false;
       if(![r.created,r.entry,r.entryLo,r.entryHi,r.stop,r.tp1,r.tp2].every(finite))return false;
       if(!(r.stop>r.entryHi&&r.entryHi>=r.entry&&r.entry>=r.entryLo&&r.entryLo>r.tp1&&r.tp1>r.tp2))return false;

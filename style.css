@@ -471,13 +471,29 @@
   .api-note code{background:rgba(255,255,255,.07);border-radius:5px;padding:1px 5px;direction:ltr;display:inline-block}
 
 /* Independent short research workspace */
+.muted { color:var(--muted); }
 .short-warning { color:var(--muted); line-height:1.9; font-size:.8rem; margin:12px 0; }
 .short-controls { display:flex; flex-wrap:wrap; gap:16px; align-items:center; }
 .short-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,310px),1fr)); gap:12px; max-height:650px; overflow:auto; margin:16px 0; }
 .short-card { border:1px solid #fb718544; border-radius:14px; padding:16px; background:linear-gradient(135deg,#fb71850b,transparent); font-size:.8rem; line-height:1.9; }
 .short-card h3 { margin:0 0 8px; }.short-card p { margin:8px 0; }
+.short-card .score-bar { margin:4px 0 8px; }
 .short-table { overflow:auto; }.short-table table { width:100%; white-space:nowrap; }
 #shortFresh { color:var(--muted); font-size:.8rem; }
+/* پیل وضعیت و هدر قیمت — هم‌ارز گرافیکی با کارت‌های لانگ */
+.ss-head { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:4px; }
+.ss-head b { font-size:.86rem; }
+.ss-price { display:flex; align-items:center; gap:8px; font-size:.76rem; color:var(--muted); flex-wrap:wrap; margin:2px 0 6px; }
+.ss-price b { color:var(--text); font-size:.9rem; font-variant-numeric:tabular-nums; }
+.sspill { font-size:.68rem; font-weight:800; padding:3px 10px; border-radius:999px; white-space:nowrap; }
+.ss-ready  { background:rgba(251,113,133,.16); color:var(--sell); }
+.ss-wait   { background:rgba(251,191,36,.14); color:var(--pot); }
+.ss-block  { background:rgba(148,163,184,.12); color:var(--hold); }
+/* در شورت، «ورود» سِمتِ فروش است: کادر سبزِ لانگ اینجا فیروزه‌ای می‌شود، حدضرر بالا و هدف‌ها پایین */
+.tri .sentry { background:rgba(0,212,255,.10); } .tri .sentry b { color:var(--accent2); }
+/* 🚀 بنر مسیر مومنتوم در مودال */
+.momoline { margin-top:7px; font-size:.72rem; line-height:1.85; color:#7ef0c4;
+  background:rgba(0,230,118,.06); border:1px dashed rgba(0,230,118,.35); border-radius:10px; padding:7px 10px; }
 
 /* Enriched data layer: quality badge, funding/crowding rows and budget status */
 .mdq { display:inline-block; margin-inline-start:6px; padding:1px 7px; border-radius:999px; font-size:.66rem; font-weight:700; border:1px solid transparent; }
