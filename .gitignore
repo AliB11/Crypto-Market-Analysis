@@ -1,0 +1,35 @@
+# ---------------------------------------------------------------- python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+coverage.xml
+
+# generated at runtime by database/migrate.py
+backend/database/migrations/
+
+# ------------------------------------------------------------------ node
+node_modules/
+.next/
+out/
+npm-debug.log*
+yarn-error.log*
+.turbo/
+
+# --------------------------------------------------------------- secrets
+.env
+.env.local
+.env.*.local
+
+# ------------------------------------------------------------------ misc
+.DS_Store
+*.log
+.idea/
+.vscode/
+frontend/tsconfig.tsbuildinfo

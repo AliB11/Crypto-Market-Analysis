@@ -1,0 +1,21 @@
+# ---------------------------------------------------------------------------
+# Backend API gateway + shared libraries (no ML stack – kept intentionally
+# small so the FastAPI image stays lean).
+# ---------------------------------------------------------------------------
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.5
+pydantic-settings==2.7.1
+asyncpg==0.30.0
+redis[hiredis]==5.2.1
+slowapi==0.1.9
+httpx==0.28.1
+python-dotenv==1.0.1
+
+# --- quant engine -----------------------------------------------------------
+numpy==2.2.1
+pandas==2.2.3
+
+# --- test suite --------------------------------------------------------------
+pytest==8.3.4
+pytest-asyncio==0.25.2

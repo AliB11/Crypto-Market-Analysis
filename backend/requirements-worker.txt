@@ -1,0 +1,23 @@
+# ---------------------------------------------------------------------------
+# Analytics / ingestion worker profile.
+# Extends the API requirements with the Celery + ingestion + NLP stack.
+# ---------------------------------------------------------------------------
+-r requirements.txt
+
+# --- distributed task queue with event loop concurrency ----------------------
+celery[redis]==5.4.0
+celery-aio-pool==0.2.2
+
+# --- market data --------------------------------------------------------------
+ccxt==4.4.24
+
+# --- official social platform SDKs --------------------------------------------
+tweepy==4.14.0          # Twitter API v2 (AsyncClient)
+praw==7.8.1             # Reddit (bridged to asyncio via to_thread)
+
+# --- transformer NLP (CPU builds pulled from the PyTorch CPU index) ----------
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.5.1+cpu
+transformers==4.47.1
+tokenizers==0.21.0
+sentencepiece==0.2.0
