@@ -88,6 +88,9 @@ export function ChartContainer() {
         secondsVisible: false,
         rightOffset: 4,
       },
+      // Explicit locale: never derive from navigator.language, which can be
+      // an invalid BCP-47 tag on some webviews/embedded browsers.
+      localization: { locale: "en-US" },
       handleScale: { axisPressedMouseMove: { time: true, price: false } },
       autoSize: true,
     });
