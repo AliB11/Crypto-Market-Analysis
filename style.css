@@ -334,7 +334,29 @@
     *,*::before,*::after{animation-duration:.001ms !important;animation-iteration-count:1 !important;transition-duration:.001ms !important;scroll-behavior:auto !important}
     body::before,body::after{animation:none}
   }
-  @media print{
+  /* ---------- لایه‌ی On-chain ---------- */
+.oc-panel{padding:14px 16px 16px}
+.oc-verdict{font-size:.86rem;font-weight:700;margin-bottom:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.oc-flag{font-size:.74rem;font-weight:600;color:var(--down);border:1px solid rgba(251,113,133,.35);background:rgba(251,113,133,.09);border-radius:999px;padding:2px 9px}
+.oc-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(168px,1fr));gap:9px}
+.oc-card{--oc:var(--muted);position:relative;background:linear-gradient(180deg,rgba(255,255,255,.035),rgba(255,255,255,.012));border:1px solid var(--line);border-radius:12px;padding:10px 11px 11px;overflow:hidden}
+.oc-card::before{content:"";position:absolute;inset:0 auto 0 0;width:3px;background:var(--oc)}
+.oc-card>span{display:block;font-size:.7rem;color:var(--muted);letter-spacing:.02em}
+.oc-card>b{display:block;font-size:1.02rem;margin-top:4px;color:var(--oc)}
+.oc-card>small{display:block;font-size:.7rem;color:var(--muted);margin-top:3px;line-height:1.6}
+.oc-why-row{margin-top:10px}
+.oc-coins{margin-top:12px;overflow-x:auto}
+.oc-table{width:100%;border-collapse:collapse;font-size:.75rem;min-width:560px}
+.oc-table th{text-align:right;color:var(--muted);font-weight:600;padding:5px 7px;border-bottom:1px solid var(--line);white-space:nowrap}
+.oc-table td{padding:5px 7px;border-bottom:1px dashed rgba(255,255,255,.06)}
+.oc-table td.num{font-variant-numeric:tabular-nums;white-space:nowrap;font-weight:700}
+.oc-table td.oc-why{color:var(--muted);line-height:1.7}
+.oc-empty{font-size:.76rem;color:var(--muted);padding:10px 2px}
+.oc-note{margin-top:11px;line-height:2}
+.oc-note .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;direction:ltr;display:inline-block}
+@media (max-width:720px){.oc-grid{grid-template-columns:repeat(auto-fit,minmax(140px,1fr))}}
+
+@media print{
     body::before,body::after,header,.controls,.mon-grid,footer .btn,#modal,
     .side-tabs,.api-controls,#apiPreview{display:none !important}
     body{background:#fff;color:#000}

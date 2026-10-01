@@ -16,29 +16,49 @@ assert.match(app,/CACHE_MAX_AGE_MS=6\*60\*60\*1000/);
 assert.match(app,/cache\?\.v===CACHE_VERSION/);
 assert.match(app,/new Worker\('indicator-worker\.js'\)/);
 assert.match(css,/prefers-reduced-motion/);
-assert.match(sw,/cryptobin-shell-v9/);
+/* نسخه‌ی پوسته باید در هر انتشار عوض شود، وگرنه فایل‌های تازه به کاربر
+   نمی‌رسند (کش قدیمی همه‌چیز را نگه می‌دارد). */
+assert.match(sw,/cryptobin-shell-v\d+/,'نسخه‌ی پوسته در sw.js پیدا نیست');
 /* ماژول‌های تازه باید هم در HTML و هم در پوسته‌ی Service Worker باشند، وگرنه
    نسخه‌ی آفلاین یا تحلیل با خطای «Analytics is not defined» می‌خوابد. */
-assert.match(html,/script src="analytics\.js" defer><\/script>/);
-assert.match(html,/script src="market-data\.js" defer><\/script>/);
-assert.ok(html.indexOf('analytics.js')<html.indexOf('app.js'),'analytics.js باید پیش از app.js بارگذاری شود');
-assert.ok(html.indexOf('market-data.js')<html.indexOf('app.js'),'market-data.js باید پیش از app.js بارگذاری شود');
-['analytics.js','market-data.js'].forEach(f=>assert.ok(sw.includes(`./${f}`),`${f} در فهرست پوسته‌ی SW نیست`));
+/* هر اسکریپتی که در HTML هست باید در فهرست پوسته‌ی Service Worker هم باشد —
+   وگرنه نسخه‌ی آفلاین با «X is not defined» می‌خوابد. ترتیب بارگذاری هم
+  قرارداد است: ماژول‌های خالص پیش از app.js. */
+for(const f of ['analytics.js','market-data.js','short-engine.js','onchain.js']){
+  assert.match(html,new RegExp(`script src="${f}" defer`),`${f} با defer بارگذاری نمی‌شود`);
+  assert.ok(sw.includes(`./${f}`),`${f} در فهرست پوسته‌ی SW نیست`);
+  assert.ok(html.indexOf(f)<html.indexOf('app.js'),`${f} باید پیش از app.js بارگذاری شود`);
+}
 /* کنترل بودجه‌ی لایه‌ی داده و خط وضعیت آن باید در HTML باشند */
 assert.match(html,/id="mdProfile"/);
 assert.match(html,/id="mdStatus"/);
-/* دامنه‌ی تازه‌ای به CSP اضافه نشده باشد: همه‌ی فراخوان‌های تازه از همان
-   api.coingecko.com هستند، پس نباید origin تازه‌ای در connect-src باشد. */
+/* کنترل و وضعیت لایه‌ی On-chain هم باید در HTML باشد */
+assert.match(html,/id="ocMode"/);
+assert.match(html,/id="ocStatus"/);
+assert.match(html,/id="ocGrid"/);
+/* هر دامنه‌ای که کد واقعاً با آن fetch می‌کند باید در connect-src باشد (وگرنه
+   CSP بی‌صدا درخواست را می‌کُشد) و هیچ دامنه‌ی بی‌مصرفی هم نباید در CSP بماند.
+   دامنه‌های مصرفی از خودِ منبع استخراج می‌شوند، نه از یک فهرست دستی. */
 {
   const csp=(html.match(/connect-src([^;"]+)/)||[])[1]||'';
-  const origins=[...csp.matchAll(/https:\/\/([a-z0-9.-]+)/gi)].map(m=>m[1]);
-  assert.deepEqual([...new Set(origins)].sort(),['api.alternative.me','api.coingecko.com'],
-    'دامنه‌ی غیرمنتظره در connect-src اضافه شده است');
+  const allowed=[...new Set([...csp.matchAll(/https:\/\/([a-z0-9.-]+)/gi)].map(m=>m[1]))].sort();
+  const ocSrc=readFileSync(new URL('../onchain.js',import.meta.url),'utf8');
+  const ep=ocSrc.slice(ocSrc.indexOf('const ENDPOINTS'), ocSrc.indexOf('const STABLE_SEED'));
+  const used=new Set();
+  const apiHost=app.match(/const API\s*=\s*'https:\/\/([a-z0-9.-]+)/); if(apiHost) used.add(apiHost[1]);
+  [...app.matchAll(/getJSON\('https:\/\/([a-z0-9.-]+)/g)].forEach(m=>used.add(m[1]));
+  [...ep.matchAll(/https:\/\/([a-z0-9.-]+)/g)].forEach(m=>used.add(m[1]));
+  assert.deepEqual(allowed,[...used].sort(),'connect-src با دامنه‌های واقعیِ فراخوان هم‌خوان نیست');
+  assert.ok(!/connect-src[^;"]*\*/.test(html),'wildcard در connect-src مجاز نیست');
 }
 /* ماژول‌های تازه باید UMD و بدون وابستگی به DOM باشند */
 {
   const analytics=readFileSync(new URL('../analytics.js',import.meta.url),'utf8');
   const md=readFileSync(new URL('../market-data.js',import.meta.url),'utf8');
+  const oc=readFileSync(new URL('../onchain.js',import.meta.url),'utf8');
+  assert.doesNotMatch(oc,/document\./,'onchain.js نباید به DOM وابسته باشد (آزمون Node)');
+  assert.match(oc,/module\.exports/,'onchain.js باید در Node هم قابل بارگذاری باشد');
+  assert.match(oc,/setEnv/,'onchain.js باید محیط تزریق‌پذیر داشته باشد تا آزمون‌پذیر بماند');
   [analytics,md].forEach((src,name)=>{
     assert.doesNotMatch(src,/document\./,`${name} نباید به DOM وابسته باشد`);
     assert.match(src,/module\.exports/,'ماژول‌ها باید در Node هم قابل بارگذاری باشند');

@@ -9,7 +9,9 @@
      geometry, freshness, regime and R/R from live price only. */
 (function(root){
   'use strict';
-  const VERSION='short-pullback-v2';
+  const VERSION='short-pullback-v2';   // v2.1: افزودنِ کران‌دارِ لایه‌ی On-chain به امتیاز.
+  // رشته‌ی نسخه عمداً عوض نشده: هندسه، موانع و اعتبارسنجی رکوردها یکسان‌اند و
+  // کارنامه‌ی ذخیره‌شده‌ی کاربر نباید با یک «استراتژی تازه» برچسب بخورد.
   const LEGACY_VERSIONS=['short-pullback-v1'];   // stored history remains readable
   const finite=x=>Number.isFinite(x)&&x>0;
   const clamp=(x,l,h)=>Math.max(l,Math.min(h,x));
@@ -82,6 +84,18 @@
       if(funding<=-40) score-=10;
       if(funding<=-20 && a.oiChangePct!=null && a.oiChangePct>=3) score-=6;
     }
+    /* 🧊 لایه‌ی On-chain — فقط «اثر»، نه «دلیلِ رد»: در این موتور reasons یعنی
+       مسدودکننده، پس توضیحِ آنچین اینجا نوشته نمی‌شود (در بخش «زمینه‌ی بازار»
+       مودال قابل خواندن است). فشار آزادسازی عرضه و کوچک‌شدن اکوسیستم سوختِ
+       شورت است؛ ورود نقدینگی دلاری دشمنش. نبود a.oc = هیچ تغییری. */
+    const oc=a.oc||null;
+    if(oc&&oc.flags){
+      if(oc.flags.overhang==='severe') score+=5;
+      else if(oc.flags.overhang) score+=3;
+      if(oc.flags.exodus) score+=3;
+      if(oc.flags.fullyCirculated) score-=2;
+    }
+    if(regime?.oc?.liq?.level==='expansion') score-=4;
     // creation-validated score is a floor for fill re-validation, never for display
     const floorScore=Number.isFinite(options.levels?.score)?options.levels.score:null;
     p.score=Math.round(clamp(revalidate&&floorScore!=null?Math.max(score,floorScore):score,0,100));
