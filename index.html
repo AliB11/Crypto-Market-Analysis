@@ -7,7 +7,7 @@
 <meta name="description" content="داشبورد فارسی تحلیل تکنیکال رمزارز با پایش مداوم بازار، رتبه‌بندی بهترین ارزها و اعلام بهترین قیمت خرید بر پایه RSI، MACD، بولینگر و فیبوناچی.">
 <meta name="theme-color" content="#070b14">
 <meta name="referrer" content="strict-origin-when-cross-origin">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https://api.coingecko.com https://api.alternative.me; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https://api.coingecko.com https://api.alternative.me https://mempool.space https://api.llama.fi; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests">
 <meta property="og:type" content="website">
 <meta property="og:title" content="کریپتوبین | تحلیل تکنیکال هوشمند بازار رمزارز">
 <meta property="og:description" content="پایش مداوم بازار، رتبه‌بندی بهترین رمزارزها و اعلام بهترین قیمت خرید با تحلیل تکنیکال زنده.">
@@ -95,6 +95,26 @@
         <h3>✅ سیگنال‌های اصلی — مجاز برای معامله</h3>
         <div class="ts-sub" style="margin:-6px 0 8px">فقط ارزهایی که همه‌ی شرط‌های «دروازه‌ی رژیم» را پاس کرده‌اند؛ سایر فهرست‌های داشبورد صرفاً تحلیلی‌اند</div>
         <div class="movers" id="topSignals"></div>
+      </div>
+    </div>
+  </section>
+  <!-- On-chain -->
+  <section id="ocSec" data-mode="auto">
+    <div class="sec-title"><span class="bar"></span>🔗 داده‌ی On-chain — سوخت بازار، سلامت شبکه و فشار عرضه</div>
+    <div class="panel oc-panel">
+      <div class="oc-verdict" id="ocVerdict" aria-live="polite"><span class="muted">در انتظار داده…</span></div>
+      <div class="oc-grid" id="ocGrid"></div>
+      <div class="rwhy oc-why-row" id="ocWhy"></div>
+      <div class="oc-coins" id="ocCoins"></div>
+      <div class="ts-sub oc-note">
+        این لایه سه چیز را می‌سنجد که با کندل و حجم دیده نمی‌شوند: <b>۱) عرضه‌ی on-chain استیبل‌کوین‌ها</b>
+        (تتر + USDC) که سوخت واقعی ورود به بازار است، <b>۲) سلامت شبکه‌ی بیت‌کوین</b>
+        (نرخ هش، دشواری، کارمزد و صف مِم‌پول — نشانه‌ی تسلیم یا اشتهای واقعی) و <b>۳) عرضه‌ی در راه</b>
+        (فاصله‌ی FDV تا ارزش بازار و روند TVL زنجیره‌ی میزبان).
+        اعداد از <span class="mono">mempool.space</span>، <span class="mono">api.llama.fi</span> و همان
+        پاسخ CoinGecko می‌آیند — بدون کلید API. روند TVL و «سهم دلاری» با اسنپ‌شات‌های ساعتیِ محلی ساخته
+        می‌شوند، پس تا چند ساعت تاریخچه جمع نشود عمداً <b>بی‌اثر</b> می‌مانند (صفرِ ساختگی نداریم).
+        در حالت «خاموش» هیچ فراخوانی زده نمی‌شود و همه‌ی امتیازها دقیقاً مثل قبل‌اند.
       </div>
     </div>
   </section>
@@ -254,7 +274,15 @@
             <option value="full">کامل — ۴۰ ارز در ساعت</option>
           </select>
         </div>
+        <div class="swrow"><span>لایه‌ی On-chain</span>
+          <select class="sel" id="ocMode" title="داده‌ی زنجیره‌ی عمومی (mempool.space، DefiLlama و عرضه‌ی on-chain استیبل‌کوین‌ها) بدون کلید API خوانده می‌شود. «خودکار» روی امتیاز خرید و دروازه اثر می‌گذارد؛ «فقط نمایش» هیچ امتیازی را تغییر نمی‌دهد." aria-label="حالت لایه On-chain">
+            <option value="auto" selected>خودکار (روی امتیاز و دروازه)</option>
+            <option value="display">فقط نمایش</option>
+            <option value="off">خاموش (بدون فراخوان)</option>
+          </select>
+        </div>
         <div class="swrow md-status-row"><span class="md-status-label">وضعیت داده</span><b class="md-status" id="mdStatus">—</b></div>
+        <div class="swrow md-status-row"><span class="md-status-label">وضعیت آنچین</span><b class="md-status" id="ocStatus">—</b></div>
         <div class="swrow"><span>چرخه‌های انجام‌شده</span><b id="cycles">۰</b></div>
         <div class="swrow"><span>آخرین بررسی</span><b id="lastChk">—</b></div>
         <button class="btn" id="clearAl" style="width:100%;justify-content:center;margin-top:10px">🗑️ پاک کردن تاریخچه هشدارها</button>
@@ -342,6 +370,7 @@
 <script src="analytics.js" defer></script>
 <script src="market-data.js" defer></script>
 <script src="short-engine.js" defer></script>
+<script src="onchain.js" defer></script>
 <script src="app.js" defer></script>
 </body>
 </html>

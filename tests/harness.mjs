@@ -10,7 +10,7 @@
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
 
-export const MODULES=['analytics.js','market-data.js','short-engine.js','app.js'];
+export const MODULES=['analytics.js','market-data.js','short-engine.js','onchain.js','app.js'];
 
 export const DEFAULT_EXPORTS='state,gate,mon,perf,REGIMES,GATE_STATES,GATE_RULES,GATE_STRICT,bestList,applyMarketContext,'
   +'evalMarketGate,evalCoinGate,gatePermit,gateRank,gateStats,gateBadge,detectEvents,perfCycle,perfOpen,renderAll,'
@@ -18,7 +18,9 @@ export const DEFAULT_EXPORTS='state,gate,mon,perf,REGIMES,GATE_STATES,GATE_RULES
   +'syncGateUI,loadAll,setMon,shorts,shortCycle,updateShortPlans,renderShorts,exportShortCSV,shortCoinFresh,shortOptions,shortFresh,shortFreshKey,refreshModal,tick,pushAlert,marketRows,analyze,computeIndicatorsInWorker,'
   +'renderFNG,fngValue,buildSignalPayload,setSide,sideView,sideCounts,renderDual,renderSideTabs,renderApiPreview,SIGNAL_SCHEMA_VERSION,'
   +'deriveMarketData,enrichmentCandidates,refreshDerivatives,runEnrichment,attachCachedMarketData,mdStatusText,enrichCycle,updateMdStatus,'
-  +'Analytics,MarketData,CROWD,ShortEngine,openReplay,replayControl,stopReplay,renderReplayBar,findReplayRec,replayKindFor,regimeCommit,fnv1a,gapSectionHtml,openModal';
+  +'Analytics,MarketData,CROWD,ShortEngine,openReplay,replayControl,stopReplay,renderReplayBar,findReplayRec,replayKindFor,regimeCommit,fnv1a,gapSectionHtml,openModal,'
+  +'OnChain,oc,ocs,OC_MODES,refreshOnChain,ocReadCache,ocMarketAssess,coinOnchain,renderOnchain,ocStatusText,updateOcStatus,fmtTiny,buildSignalPayload,'
+  +'assetKind,perfSave,perfTrim,filtered,sparkline,beep,setGrade,longSignal';
 
 function ctx2d(){
   const noop=()=>{};
@@ -112,6 +114,28 @@ export function boot(opts={}){
     fetch:async url=>{
       if(net.fail)throw new Error('test offline');
       const u=String(url);
+      /* لایه‌ی On-chain: network.oc = null (بی‌داده=پاسخ خالی) | false (همه ۴۰۴)
+         | شیء {diff,hash,fees,pool,chains,stables,fn} برای پاسخ‌های ساختگی. */
+      const oc = net.oc;
+      if(oc!==undefined && /mempool\.space|api\.llama\.fi/.test(u)){
+        net.hits.oc=(net.hits.oc||0)+1;
+        if(oc===false) return {ok:false,status:404,json:async()=>({})};
+        if(typeof oc==='function'){ const r=oc(u); return {ok:r!==undefined,status:200,json:async()=>(r===undefined?{}:r)}; }
+        const key=u.includes('difficulty-adjustment')?'diff':u.includes('/mining/hashrate')?'hash':u.includes('/fees/recommended')?'fees'
+          :u.includes('/api/mempool')?'pool':u.includes('api.llama.fi')?'chains':null;
+        const body=key?oc[key]:undefined;
+        if(body===undefined) return {ok:true,status:200,json:async()=>({})};
+        return {ok:true,status:200,json:async()=>body};
+      }
+      /* سری استیبل‌کوین‌ها (days=120) هم از همان market_chart می‌آید؛ با امضای
+         خودش تشخیص داده می‌شود تا شمارنده‌ی غنی‌سازی (hits.chart) آلوده نشود. */
+      if(/\/coins\/(tether|usd-coin)\/market_chart/.test(u) && u.includes('days=120')){
+        net.hits.oc=(net.hits.oc||0)+1;
+        if(oc===false) return {ok:false,status:404,json:async()=>({})};
+        const id=u.includes('usd-coin')?'usd-coin':'tether';
+        const body=(oc&&oc.stables&&oc.stables[id])||{market_caps:[]};
+        return {ok:true,status:200,json:async()=>body};
+      }
       if(u.includes('/derivatives')){ net.hits.deriv++; return {ok:true, status:200, json:async()=>net.deriv||[]}; }
       const ohlc=u.match(/\/coins\/([^/?]+)\/ohlc/);
       if(ohlc){ net.hits.ohlc++; return {ok:true, status:200, json:async()=>hooks.ohlc?hooks.ohlc(decodeURIComponent(ohlc[1])):[]}; }
