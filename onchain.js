@@ -527,8 +527,7 @@
     }
     if(isNum(mcap) && mcap > 0 && isNum(fdv) && fdv > 0){
       out.fdvRatio = fdv / mcap;
-      out.ready = true;
-        if(!isNum(circ) || !isNum(tot) || tot <= 0) out.floatPct = clamp(mcap / fdv, 0, 1) * 100;   // تخمین سهم شناور از خود FDV
+      if(!isNum(circ) || !isNum(tot) || tot <= 0) out.floatPct = clamp(mcap / fdv, 0, 1) * 100;   // تخمین سهم شناور از خود FDV
       out.ready = true;                       // «قابل داوری» یعنی FDV روی میز باشد
     }
     /* مبنای داوری، فاصله‌ی FDV تا ارزش بازارِ امروز است — نه total_supply که

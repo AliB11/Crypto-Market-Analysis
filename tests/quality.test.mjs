@@ -19,6 +19,12 @@ assert.match(css,/prefers-reduced-motion/);
 /* نسخه‌ی پوسته باید در هر انتشار عوض شود، وگرنه فایل‌های تازه به کاربر
    نمی‌رسند (کش قدیمی همه‌چیز را نگه می‌دارد). */
 assert.match(sw,/cryptobin-shell-v\d+/,'نسخه‌ی پوسته در sw.js پیدا نیست');
+/* نسخه‌ی مستندشده در README باید همان نسخه‌ی sw.js باشد؛ وگرنه بعد از هر
+   انتشار، سند و کد از هم جدا می‌افتند (همین اتفاق یک‌بار افتاده بود: v7 در
+   README مقابل v10 در sw.js). */
+const swVer=(sw.match(/cryptobin-shell-v\d+/)||[])[0];
+assert.ok(readFileSync(new URL('../README.md',import.meta.url),'utf8').includes(swVer),
+  `نسخه‌ی پوسته در README با sw.js یکی نیست (${swVer})`);
 /* ماژول‌های تازه باید هم در HTML و هم در پوسته‌ی Service Worker باشند، وگرنه
    نسخه‌ی آفلاین یا تحلیل با خطای «Analytics is not defined» می‌خوابد. */
 /* هر اسکریپتی که در HTML هست باید در فهرست پوسته‌ی Service Worker هم باشد —
