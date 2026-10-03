@@ -19,11 +19,42 @@ const LS_KEYS = {
   perf:'cb_perf_v1', cache:'cb_cache', risk:'cb_risk', mon:'cb_mon_v1',
   view:'cb_view', sort:'cb_sort', filter:'cb_filter', side:'cb_side_v1', oc:'cb_oc_v1'
 };
+/* ---------------------------------------------------------------------
+   داده‌ی حافظه هرگز «سالم» فرض نمی‌شود
+   نسخه‌ی قبلی برنامه، ویرایش دستی یا نوشتنِ نیمه‌تمام می‌تواند شکل داده را
+   عوض کند. یک عضو null در cb_alerts در بوت برنامه را می‌ترکاند و مقدار
+   غیرآرایه‌ای در cb_cmp/cb_watch با «map/indexOf is not a function» صفحه را
+   می‌خواباند؛ پس هر مقدار پیش از مصرف به شکل امن تبدیل می‌شود.
+   --------------------------------------------------------------------- */
+const HEX_RE=/^#[0-9a-f]{3,8}$/i;
+function storedJSON(key, fallback){
+  try{ const raw=localStorage.getItem(key); if(raw==null) return fallback;
+    const v=JSON.parse(raw); return v==null? fallback : v; }catch(e){ return fallback; }
+}
+function asArray(v){ return Array.isArray(v) ? v : []; }
+function sanitizeIds(v, cap=Infinity){
+  const out=[];
+  for(const x of asArray(v)){ if(typeof x!=='string' || !x || out.includes(x)) continue;
+    out.push(x); if(out.length>=cap) break; }
+  return out;
+}
+/* اعلان‌های ذخیره‌شده باید «شیء با شناسه و متن» باشند؛ رنگ فقط هگز است تا
+   مقدار آلوده نتواند از قالبِ style بیرون بزند. */
+function sanitizeAlerts(v){
+  return asArray(v).filter(a=>a && typeof a==='object' && typeof a.id==='string' && a.id).map(a=>({
+    id:a.id, sym:String(a.sym||a.id), name:String(a.name||''), img:typeof a.img==='string'?a.img:'',
+    kind: typeof a.kind==='string'? a.kind : 'sig',
+    text: String(a.text||''),
+    color: (typeof a.color==='string' && HEX_RE.test(a.color)) ? a.color : '#94a3b8',
+    t: Number.isFinite(a.t) ? a.t : Date.now()
+  })).slice(0,120);
+}
+
 const state = {coins:[], global:null, fng:null, filter:'all', q:'', sort:'buy', view:'cards',
   deriv:null, derivAt:null, derivCount:0, history:[], globalTrend:null, oc:null,
-  watch: (()=>{try{return JSON.parse(localStorage.getItem(LS_KEYS.watch)||'[]')}catch(e){return []}})(),
+  watch: sanitizeIds(storedJSON(LS_KEYS.watch, [])),
   watchOnly:false, modalCoin:null, tf:7, chartCache:{},
-  cmp: (()=>{ try{ return JSON.parse(localStorage.getItem(LS_KEYS.cmp)||'[]'); }catch(e){ return []; } })()
+  cmp: sanitizeIds(storedJSON(LS_KEYS.cmp, []), 4)
 };
 try{
   const v=localStorage.getItem(LS_KEYS.view); if(v==='cards'||v==='table') state.view=v;
@@ -532,10 +563,11 @@ const $ = s=>document.querySelector(s);
 const esc = v => String(v==null?'':v).replace(/[&<>\"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
 const safeImg = u => { const t=String(u||''); return /^https:\/\//i.test(t) ? esc(t) : ''; };
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
-const fmtN=(n,d)=>n==null?'—':Number(n).toLocaleString('en-US',{maximumFractionDigits:d??2,minimumFractionDigits:0});
-function fmtP(p){ if(p==null) return '—'; if(p>=1000) return '$'+fmtN(p,0); if(p>=1) return '$'+fmtN(p,2); if(p>=0.01) return '$'+fmtN(p,4); return '$'+Number(p).toPrecision(3); }
-function fmtBig(n){ if(n==null) return '—'; const a=Math.abs(n); if(a>=1e12) return '$'+(n/1e12).toFixed(2)+' T'; if(a>=1e9) return '$'+(n/1e9).toFixed(2)+' B'; if(a>=1e6) return '$'+(n/1e6).toFixed(1)+' M'; return '$'+fmtN(n,0); }
-const pct=(v,d=2)=> v==null?'—':(v>0?'+':'')+v.toFixed(d)+'%';
+const fmtN=(n,d)=>{ const x=Number(n); return (n==null || !Number.isFinite(x))?'—':x.toLocaleString('en-US',{maximumFractionDigits:d??2,minimumFractionDigits:0}); };
+function fmtP(p){ const n=Number(p); if(p==null || !Number.isFinite(n)) return '—'; if(n>=1000) return '$'+fmtN(n,0); if(n>=1) return '$'+fmtN(n,2); if(n>=0.01) return '$'+fmtN(n,4); return '$'+n.toPrecision(3); }
+function fmtBig(n){ const x=Number(n); if(n==null || !Number.isFinite(x)) return '—'; const a=Math.abs(x); if(a>=1e12) return '$'+(x/1e12).toFixed(2)+' T'; if(a>=1e9) return '$'+(x/1e9).toFixed(2)+' B'; if(a>=1e6) return '$'+(x/1e6).toFixed(1)+' M'; return '$'+fmtN(x,0); }
+/* عدد رشته‌ای/NaN نه رندر را می‌ترکاند و نه «NaN%» چاپ می‌کند. */
+const pct=(v,d=2)=>{ const n=Number(v); return (v==null || v==='' || !Number.isFinite(n))?'—':(n>0?'+':'')+n.toFixed(d)+'%'; };
 /* اعداد بسیار کوچک (MACD آلت‌کوین‌های ارزان) با toPrecision شکل «1.23e-8»
    می‌گرفتند؛ این فرمت‌کننده رقمِ بصریِ معنادار نگه می‌دارد و هرگز NaN نه. */
 function fmtTiny(v){
@@ -1516,7 +1548,11 @@ function renderDual(){
    ===================================================================== */
 const SIGNAL_SCHEMA_VERSION='1.1';
 const DISCLAIMER='تحلیلی/آزمایشی — سیگنال قطعی معامله نیست. کارمزد، لغزش، فاندینگ و لیکوییدیشن محاسبه نشده است.';
-const num=(v,d=8)=>Number.isFinite(v)?Number(v.toFixed(d)):null;
+/* گرد کردنِ عددی برای خروجی ماشینی. برای قیمت‌های بسیار کوچک (زیر ۱e-4)
+   «ارقام بامعنا» نگه داشته می‌شود: toFixed(8) سطوح یک ارز ۹.۸e-9 را همه روی
+   1e-8 می‌انداخت و هندسه‌ی سیگنال (stop < ورود < هدف) در JSON بی‌معنا می‌شد. */
+const num=(v,d=8)=>{ if(!Number.isFinite(v)) return null; const a=Math.abs(v);
+  return (a>0 && a<1e-4) ? Number(v.toPrecision(Math.max(4,d))) : Number(v.toFixed(d)); };
 
 function longSignal(c){
   const a=c.a, g=a.gate;
@@ -2368,7 +2404,7 @@ function renderBest(){
 const mon = {
   on:true, iv:90, sound:false, notif:false, filter:'buy',
   cycles:0, left:90, prev:{},
-  alerts: (()=>{try{return JSON.parse(localStorage.getItem(LS_KEYS.alerts)||'[]')}catch(e){return []}})(),
+  alerts: sanitizeAlerts(storedJSON(LS_KEYS.alerts, [])),
   backoff:1, prevRegime:null, prevGate:null
 };
 try{
@@ -2401,6 +2437,7 @@ function notify(title,body){ if(!mon.notif) return; try{ if(Notification.permiss
 
 function pushAlert(c,kind,text,color,important){
   const a={id:c.id,sym:c.symbol.toUpperCase(),name:c.name,img:c.image,kind,text,color,t:Date.now()};
+  if(!Array.isArray(mon.alerts)) mon.alerts=[];      // مقدار آلوده‌ی حافظه نباید صف اعلان را بخواباند
   mon.alerts.unshift(a);
   if(mon.alerts.length>120) mon.alerts.length=120;
   if(important&&alertVisible(a)){ beep(); notify(`${a.sym} — ${text}`, kind==='short'?`شورت آزمایشی • قیمت ${fmtP(c.current_price)} • بدون اجرای سفارش`:`قیمت ${fmtP(c.current_price)} • بهترین خرید ${fmtP(c.a.entry)} • ${c.a.gate?GATE_STATES[c.a.gate.state].label:''}`); }
@@ -2534,6 +2571,7 @@ function detectEvents(){
 }
 
 function alertVisible(a){
+  if(!a || typeof a!=='object') return false;        // دفاع دوم؛ sanitizeAlerts در بارگذاری هم هست
   if(mon.filter==='all') return true;
   if(mon.filter==='watch') return state.watch.includes(a.id);
   if(mon.filter==='short') return a.kind==='short';
@@ -2627,7 +2665,41 @@ $('#clearAl').onclick=()=>{ mon.alerts=[]; try{ localStorage.removeItem(LS_KEYS.
    ===================================================================== */
 const PERF_KEY=LS_KEYS.perf;
 const HORIZON_MS=7*24*3600*1000;
-const perf = { rec: (()=>{ try{ return JSON.parse(localStorage.getItem(PERF_KEY)||'[]').map(r=>({...r,side:'long',version:r.version||'legacy-long-v1'})); }catch(e){ return []; } })() };
+/* رکوردهای کارنامه هم از حافظه می‌آیند و باید نرمال شوند: رشته‌ی «oops» در
+   ret قبلاً هم قالب را NaN می‌کرد و هم pct() را با «toFixed is not a function»
+   می‌ترکاند، و رکوردِ بدون p0 عددهای بی‌معنا (NaN/Infinity) می‌ساخت. */
+function perfNum(v, fallback=null){ const n=typeof v==='number'? v : Number(v); return (v!=null && v!=='' && Number.isFinite(n))? n : fallback; }
+function perfSanitize(list){
+  const out=[];
+  for(const raw of asArray(list)){
+    if(!raw || typeof raw!=='object') continue;
+    if(typeof raw.id!=='string' || !raw.id) continue;
+    const p0=perfNum(raw.p0);
+    if(!(p0>0)) continue;                                  // بدون قیمت ورود، هیچ آماری معنا ندارد
+    const open = raw.open!==false;
+    const r = { side:'long', version: typeof raw.version==='string'? raw.version:'legacy-long-v1',
+      id:raw.id, sym:String(raw.sym||'').toUpperCase()||raw.id, name:String(raw.name||''),
+      img: typeof raw.img==='string'? raw.img:'', t0: perfNum(raw.t0, Date.now()), p0,
+      entry: perfNum(raw.entry, p0), tp1: perfNum(raw.tp1, p0), stop: perfNum(raw.stop, p0),
+      score: perfNum(raw.score), buyScore: perfNum(raw.buyScore), grade: typeof raw.grade==='string'? raw.grade:'',
+      cat: typeof raw.cat==='string'? raw.cat:'', pred: perfNum(raw.pred), feePct: perfNum(raw.feePct),
+      fundingAnnual: perfNum(raw.fundingAnnual), open, peak: perfNum(raw.peak, p0),
+      trough: perfNum(raw.trough, p0), last: perfNum(raw.last, p0) };
+    if(!open){
+      let ret=perfNum(raw.ret);
+      const last=perfNum(raw.last);
+      if(ret==null && last>0) ret=(last/p0-1)*100;         // بازیابی بازده از آخرین قیمت
+      if(ret==null) continue;                              // نتیجه‌ی بی‌عدد دور ریخته می‌شود
+      r.ret=ret; r.t1=perfNum(raw.t1, r.t0);
+      for(const k of ['retNet','mfe','mae']){ const v=perfNum(raw[k]); if(v!=null) r[k]=v; }
+      r.result = ['win','loss','flat'].includes(raw.result)? raw.result : (ret>0?'win':(ret<0?'loss':'flat'));
+      r.why = typeof raw.why==='string'? raw.why : '';
+    }
+    out.push(r);
+  }
+  return out;
+}
+const perf = { rec: perfSanitize(storedJSON(PERF_KEY, [])) };
 /* ظرفیت تاریخچه هیچ‌وقت با حذف رکوردِ باز پر نمی‌شود (همان درسی که از موتور
    شورت گرفته شد: برش کور، معامله‌ی باز را بی‌صدا ناپدید می‌کرد). */
 const PERF_CAP = 300;
@@ -2690,12 +2762,13 @@ function perfStats(){
   const win=done.filter(r=>r.result==='win').length;
   const loss=done.filter(r=>r.result==='loss').length;
   const flat=done.filter(r=>r.result==='flat').length;
-  const rets=done.map(r=>r.ret||0);
+  const rr=r=> Number.isFinite(r.ret)? r.ret : 0;        // دفاع دوم؛ perfSanitize در بارگذاری هم هست
+  const rets=done.map(rr);
   const avg=rets.length? rets.reduce((a,b)=>a+b,0)/rets.length : 0;
   const decided=win+loss;
-  const gains=done.filter(r=>(r.ret||0)>0).reduce((a,b)=>a+b.ret,0);
-  const losses=Math.abs(done.filter(r=>(r.ret||0)<0).reduce((a,b)=>a+b.ret,0));
-  const wins=done.filter(r=>(r.ret||0)>0).map(r=>r.ret), lss=done.filter(r=>(r.ret||0)<0).map(r=>r.ret);
+  const gains=done.filter(r=>rr(r)>0).reduce((a,b)=>a+rr(b),0);
+  const losses=Math.abs(done.filter(r=>rr(r)<0).reduce((a,b)=>a+rr(b),0));
+  const wins=done.filter(r=>rr(r)>0).map(rr), lss=done.filter(r=>rr(r)<0).map(rr);
   const avgWin=wins.length? wins.reduce((a,b)=>a+b,0)/wins.length:0, avgLoss=lss.length? Math.abs(lss.reduce((a,b)=>a+b,0)/lss.length):0;
   const pw=done.length? wins.length/done.length:0;
   const expectancy=done.length? pw*avgWin-(1-pw)*avgLoss : null;
@@ -2906,8 +2979,13 @@ function renderCmp(){
    ===================================================================== */
 function riskCfg(){
   let d={cap:1000, pct:2, feePct:0.05};   // feePct = کارمزد هر طرف (٪) برای برآورد هزینه در کارنامه
-  try{ d=Object.assign(d, JSON.parse(localStorage.getItem(LS_KEYS.risk)||'{}')); }catch(e){}
-  if(!Number.isFinite(d.feePct)||d.feePct<0||d.feePct>1) d.feePct=0.05;
+  try{ const v=JSON.parse(localStorage.getItem(LS_KEYS.risk)||'{}'); if(v && typeof v==='object') d=Object.assign(d, v); }catch(e){}
+  /* مقدار ذخیره‌شده می‌تواند رشته/صفر/منفی باشد؛ همان‌ها ماشین‌حساب را به
+     NaN و Infinity می‌بردند. سقف‌ها عیناً همان قیدهای input هستند. */
+  const num=(v,f)=>{ const n=typeof v==='number'? v : Number(v); return (v!=null && v!=='' && Number.isFinite(n))? n : f; };
+  d.cap = clamp(num(d.cap, 1000), 1, 1e12);
+  d.pct = clamp(num(d.pct, 2), 0.1, 100);
+  d.feePct = clamp(num(d.feePct, 0.05), 0, 1);
   return d;
 }
 function riskSave(cfg){ try{ localStorage.setItem(LS_KEYS.risk, JSON.stringify(cfg)); }catch(e){} }

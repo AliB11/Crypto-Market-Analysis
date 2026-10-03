@@ -7,7 +7,10 @@
    ===================================================================== */
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {boot as harnessBoot, makeStorage, settled, els} from './harness.mjs';
+import {boot as harnessBoot, makeStorage, settled, els, DEFAULT_EXPORTS} from './harness.mjs';
+
+/* توابع کمکیِ بیشتری که آزمون‌های تحکیم به‌طور مستقیم صدا می‌زنند */
+const EXTRA_API='toggleCmp,toggleWatch,riskCfg,calcPosition,perfStats,sanitizeAlerts,pct,fmtP,fmtN,fmtBig,perfSanitize';
 import {market} from './fixtures.mjs';
 
 const appSrc = readFileSync(new URL('../app.js', import.meta.url), 'utf8');
@@ -20,7 +23,8 @@ function start(o={}){
   const res = harnessBoot({
     coins:o.coins || market(o.kind||'riskon'), store, network:o.network||{},
     global:o.global, fng:o.fng || {data:[{value:'62', value_classification:'Greed'}]},
-    hooks:{ ohlc:()=>[], chart:()=>({prices:[],total_volumes:[]}) }, omit:o.omit||[]
+    hooks:{ ohlc:()=>[], chart:()=>({prices:[],total_volumes:[]}) }, omit:o.omit||[],
+    exportsList:o.exportsList||(DEFAULT_EXPORTS+','+EXTRA_API)
   });
   return res;
 }
@@ -259,6 +263,166 @@ test('فیلتر نوع دارایی در اتصال کش، از خود داده
     price_change_percentage_24h_in_currency:1, price_change_percentage_7d_in_currency:2,
     sparkline_in_7d:{price:Array.from({length:168},(_,i)=>60000+i)}};
   assert.equal(b.api.assetKind(wrapped), 'wrapped');
+});
+
+
+/* ---------- ۱۵) حافظه‌ی آلوده: cb_alerts ---------- */
+test('اعلان‌های ذخیره‌شده‌ی آلوده (null/غیرآرایه/رنگِ تزریقی) بوت را نمی‌ترکاند', async ()=>{
+  const bads=['[null,{"text":"x"}]','{"a":1}','"hello"','5','[{"id":"bitcoin","kind":"buy","text":"t","color":"red\\" onmouseover=alert(1)","t":"x"}]'];
+  for(const bad of bads){
+    let b;
+    assert.doesNotThrow(()=>{ b=start({seed:{cb_alerts:bad}}); }, `بوت با cb_alerts=${bad}`);
+    await settled(b.api); await wait(40);
+    assert.doesNotThrow(()=>b.api.renderAlerts(), `رندر اعلان با cb_alerts=${bad}`);
+    const html=els.get('#alerts').innerHTML;
+    assert.ok(!/onmouseover/.test(html), 'رنگِ آلوده نباید از قالب style بیرون بزند: '+html.slice(0,140));
+    assert.ok(!/NaN|undefined/.test(html), 'اعلان نباید NaN/undefined نشان دهد: '+html.slice(0,140));
+  }
+  /* رکورد سالم باید سالم بماند (نه اینکه کل تاریخچه دور ریخته شود) */
+  const good=JSON.stringify([{id:'bitcoin',sym:'BTC',kind:'buy',text:'رویداد سالم',color:'#00e676',t:Date.now(),img:'javascript:alert(1)'}]);
+  const b=start({seed:{cb_alerts:good}}); await settled(b.api); await wait(40);
+  const kept=b.api.mon.alerts.find(a=>a.text==='رویداد سالم');
+  assert.ok(kept,'رکورد سالم باید بماند');
+  assert.equal(kept.color,'#00e676');
+  assert.equal(kept.img,'javascript:alert(1)','تصویر فقط هنگام رندر پاک می‌شود');
+  assert.ok(/رویداد سالم/.test(els.get('#alerts').innerHTML),'متن رویداد باید دیده شود');
+  assert.ok(!/javascript:/.test(els.get('#alerts').innerHTML),'تصویر غیر https نباید در src بیاید');
+});
+
+/* ---------- ۱۶) حافظه‌ی آلوده: cb_cmp / cb_watch ---------- */
+test('فهرست مقایسه/علاقه‌مندی غیرآرایه صفحه را با «map is not a function» نمی‌خواباند', async ()=>{
+  const seeds=['"notarray"','{"x":1}','5','[null,5,"bitcoin","bitcoin"]','[]'];
+  for(const v of seeds){
+    let b;
+    assert.doesNotThrow(()=>{ b=start({seed:{cb_cmp:v, cb_watch:v}}); }, `بوت با مقایسه/علاقه‌مندی=${v}`);
+    await settled(b.api); await wait(40);
+    assert.ok(Array.isArray(b.api.state.cmp)&&Array.isArray(b.api.state.watch));
+    assert.doesNotThrow(()=>b.api.renderCmp());
+    assert.doesNotThrow(()=>b.api.toggleCmp('bitcoin'));
+    assert.doesNotThrow(()=>b.api.toggleWatch('bitcoin'));
+    assert.ok(Array.from(b.api.state.cmp).every(x=>typeof x==='string'));
+    assert.ok(b.api.state.cmp.length<=4,'سقف ۴ ارز باید رعایت شود');
+    b.api.renderAll();
+  }
+  /* تکراری‌ها و مقادیر غیررشته‌ای باید پاک شده باشند */
+  const b=start({seed:{cb_cmp:'["bitcoin",null,"bitcoin",7,"ethereum"]'}}); await settled(b.api); await wait(40);
+  assert.deepEqual(Array.from(b.api.state.cmp),['bitcoin','ethereum']);
+});
+
+/* ---------- ۱۷) حافظه‌ی آلوده: کارنامه‌ی عملکرد ---------- */
+test('رکورد آلوده‌ی کارنامه نه toFixed را می‌ترکاند نه NaN به رابط می‌برد', async ()=>{
+  const seed={cb_perf_v1: JSON.stringify([
+    {open:true, id:'bitcoin'},                                              // بدون p0 ⇒ دور ریخته می‌شود
+    {open:true, id:'ethereum', p0:'x', last:'y', t0:'z'},                   // رشته ⇒ دور ریخته می‌شود
+    {open:false, id:'solana', ret:'oops', result:'win', sym:'SOL'},         // ret بی‌عدد ⇒ دور ریخته می‌شود
+    {open:false, id:'cardano', p0:1, ret:12.5, sym:'ADA', result:'win', feePct:0.1, t0:Date.now()-864e5},
+    {open:true,  id:'ripple',  p0:0.5, last:0.6, t0:Date.now(), sym:'XRP', peak:0.6, trough:0.5, feePct:'bad'}
+  ])};
+  const b=start({seed}); await settled(b.api); await wait(60);
+  assert.deepEqual(Array.from(b.api.perf.rec).map(r=>r.id).sort(), ['cardano','ripple'], 'فقط رکوردهای عددی می‌مانند');
+  assert.equal(b.api.perf.rec.find(r=>r.id==='ripple').feePct, null, 'کارمزد غیرعددی باید پاک شود');
+  const st=b.api.perfStats();
+  for(const k of ['done','open','win','loss','flat','avg','avgWin','avgLoss','best','worst'])
+    assert.ok(Number.isFinite(st[k]), `${k} باید عدد باشد، شد: ${st[k]}`);
+  assert.ok(!Number.isNaN(st.pf), 'فاکتور سود نباید NaN باشد: '+st.pf);   // ∞ وقتی باختی ثبت نشده، مجاز است
+  assert.doesNotThrow(()=>b.api.renderPerf());
+  for(const sel of ['#accSub','#perfKv','#openList','#closedList','#accBig']){
+    const txt=(els.get(sel).innerHTML||'')+(els.get(sel).textContent||'');
+    assert.ok(!/NaN|undefined|Infinity/.test(txt), `${sel} آلوده است: `+txt.slice(0,140));
+  }
+  assert.ok(/XRP/.test(els.get('#openList').innerHTML), 'رکورد بازِ سالم باید در فهرست باز باشد');
+  assert.ok(/ADA/.test(els.get('#closedList').innerHTML), 'رکورد بستهٔ سالم باید در فهرست بسته باشد');
+});
+
+/* ---------- ۱۸) حافظه‌ی آلوده: تنظیمات ریسک ---------- */
+test('ماشین‌حساب با cb_risk آلوده (رشته/صفر/بیش از سقف) عدد بی‌معنا نشان نمی‌دهد', async ()=>{
+  const seeds=['{"cap":"x","pct":-5,"feePct":"y"}','{"cap":0,"pct":0,"feePct":2}','5','null','{"cap":1e12,"pct":100,"feePct":1}','{"cap":-50,"pct":999,"feePct":-1}'];
+  for(const v of seeds){
+    const b=start({seed:{cb_risk:v}}); await settled(b.api); await wait(40);
+    const cfg=b.api.riskCfg();
+    assert.ok(Number.isFinite(cfg.cap)&&cfg.cap>=1&&cfg.cap<=1e12, 'cap نامعتبر: '+cfg.cap);
+    assert.ok(Number.isFinite(cfg.pct)&&cfg.pct>=0.1&&cfg.pct<=100, 'pct نامعتبر: '+cfg.pct);
+    assert.ok(Number.isFinite(cfg.feePct)&&cfg.feePct>=0&&cfg.feePct<=1, 'feePct نامعتبر: '+cfg.feePct);
+    const c=b.api.state.coins.find(x=>x.a.ok&&x.a.entry&&x.a.stop);
+    if(c){
+      await b.api.openModal(c.id);
+      const html=els.get('#mcalc').innerHTML;
+      assert.ok(!/NaN|undefined|Infinity/.test(html), 'ماشین‌حساب آلوده است: '+html.slice(0,140));
+      assert.ok(!/value="[^0-9]/.test(html), 'value ورودی باید عدد باشد');
+    }
+  }
+});
+
+/* ---------- ۱۹) قالب‌کننده‌ها: ورودی غیرعددی نباید بترکاند ---------- */
+test('pct/fmtP/fmtN/fmtBig با ورودی غیرعددی «—» می‌دهند، نه استثنا', ()=>{
+  const b=start(); const {pct,fmtP,fmtN,fmtBig}=b.api;
+  for(const bad of ['oops', NaN, Infinity, undefined, {}, [], true]){
+    assert.doesNotThrow(()=>pct(bad), 'pct('+String(bad)+')');
+    assert.doesNotThrow(()=>fmtP(bad));
+    assert.doesNotThrow(()=>fmtN(bad));
+    assert.doesNotThrow(()=>fmtBig(bad));
+  }
+  assert.equal(pct('oops'),'—'); assert.equal(fmtP('oops'),'—'); assert.equal(fmtN(NaN),'—'); assert.equal(fmtBig(Infinity),'—');
+  assert.equal(pct(2.345,1),'+2.3%'); assert.equal(fmtP(12.3456),'$12.35'); assert.equal(fmtN(1234.5678,2),'1,234.57');
+  assert.equal(fmtBig(2.5e12),'$2.50 T');
+});
+
+
+/* ---------- ۲۰) اقتصاد کارنامه: هدف/حد ضرر/سررسید و کسر هزینه ---------- */
+test('کارنامه: برخورد به هدف، حد ضرر و سررسید ۷ روزه با هزینه‌ی درست بسته می‌شود', async ()=>{
+  const b=start(); await settled(b.api); await wait(60);
+  const {api}=b;
+  const c=api.state.coins.find(x=>x.a.ok && x.a.entry && x.a.stop && x.a.tp1);
+  assert.ok(c,'ارز سالمی برای آزمون پیدا نشد');
+  api.state.liveData=true; api.state.dataAt=Date.now();   // ارزیابی فقط با داده‌ی تازه جلو می‌رود
+  const base={side:'long',version:'legacy-long-v1',id:c.id,sym:c.symbol.toUpperCase(),name:c.name,img:'',
+    open:true,p0:100,tp1:110,stop:90,t0:Date.now(),peak:100,trough:100,last:100,feePct:0.1,fundingAnnual:0};
+  /* ۱) هدف اول: بُرد، بازده ≈ +۱۱٪ و خالص = بازده − کارمزد دو طرف (۰٫۲٪) */
+  api.perf.rec=[{...base}];
+  c.current_price=111; api.perfCycle();
+  let r=api.perf.rec[0];
+  assert.equal(r.open,false,'رکورد باید بسته شود');
+  assert.equal(r.result,'win');
+  assert.ok(Math.abs(r.ret-11)<1e-9, 'بازده: '+r.ret);
+  assert.ok(Math.abs(r.retNet-(r.ret-0.2))<1e-9, 'خالص باید کارمزد دو طرف را کم کند: '+r.retNet);
+  /* ۲) حد ضرر: باخت */
+  api.perf.rec=[{...base}];
+  c.current_price=89; api.perfCycle();
+  r=api.perf.rec[0];
+  assert.equal(r.result,'loss'); assert.ok(r.ret<0 && Math.abs(r.ret+11)<1e-9, 'بازده: '+r.ret);
+  /* ۳) سررسید ۷ روزه با بازده ۰٫۵٪ ⇒ خنثی (باند ±۱٪) */
+  api.perf.rec=[{...base,t0:Date.now()-8*864e5}];
+  c.current_price=100.5; api.perfCycle();
+  r=api.perf.rec[0];
+  assert.equal(r.open,false); assert.equal(r.result,'flat','۰٫۵٪ روی سررسید باید خنثی باشد، نه بُرد');
+  /* ۴) فاندینگ مثبت هزینه‌ی لانگ است و از بازده خالص کم می‌شود */
+  api.perf.rec=[{...base,t0:Date.now()-7*864e5,fundingAnnual:73}];
+  c.current_price=105; api.perfCycle();
+  r=api.perf.rec[0];
+  assert.ok(r.retNet<r.ret,'فاندینگ باید از بازده خالص کم شود');
+  assert.ok(Math.abs((r.ret-r.retNet)-(0.2+73*7/365))<1e-9, 'هزینه‌ی کل نادرست: '+JSON.stringify({ret:r.ret,net:r.retNet}));
+  api.perf.rec=[]; c.current_price=c.a.entry||100;
+});
+
+
+/* ---------- ۲۱) خروجی JSON برای قیمت‌های بسیار کوچک ---------- */
+test('قیمت‌های زیر ۱e-7 در JSON به یک عدد چسبیده تبدیل نمی‌شوند', async ()=>{
+  const tiny=v=>Number((v*1e-8).toPrecision(6));
+  const coins=market('riskon').map(c=>{
+    if(c.id!=='cardano') return c;
+    const spark=Array.isArray(c.sparkline_in_7d?.price)?c.sparkline_in_7d.price:[];
+    return {...c, current_price:2e-8, high_24h:2.2e-8, low_24h:1.8e-8, ath:3e-8,
+      sparkline_in_7d:{price:spark.map(tiny)}};
+  });
+  const b=start({coins}); await settled(b.api); await wait(60);
+  const s=b.api.buildSignalPayload({side:'long',filter:'all'}).signals.find(x=>x.id==='cardano');
+  assert.ok(s,'سیگنال ارز کوچک باید در خروجی باشد');
+  const {stop,tp1,tp2}=s.exit, {best,low,high,avg}=s.entry;
+  for(const [k,v] of Object.entries({best,low,high,avg,stop,tp1,tp2}))
+    assert.ok(Number.isFinite(v)&&v>0, `${k} باید عدد مثبت باشد، شد: ${v}`);
+  assert.ok(stop<avg && avg<tp1 && tp1<tp2, `هندسه به هم ریخته: ${JSON.stringify(s.exit)} / میانگین ${avg}`);
+  assert.ok(low<high, `باند ورود باید پهنا داشته باشد: ${low}..${high}`);
+  assert.equal(new Set([best,low,high,avg]).size>1, true, 'سطوح ورود نباید همه یک عدد شوند');
 });
 
 /* ------------------------- اجرا ------------------------- */

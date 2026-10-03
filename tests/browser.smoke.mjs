@@ -4,7 +4,13 @@
    PLAYWRIGHT_MODULE and CHROMIUM_PATH can point to an existing installation.
    API responses are deterministic fixtures, NOT a live trading validation. */
 import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
 import {market} from './fixtures.mjs';
+/* نام کش پوسته از خود sw.js خوانده می‌شود؛ نسخه‌ی دست‌نویسِ تست بعد از هر
+   انتشار عقب می‌ماند و شبیه «شکست محصول» می‌شود. */
+const swSrc=readFileSync(new URL('../sw.js',import.meta.url),'utf8');
+const shellCache=(swSrc.match(/cryptobin-shell-v\d+/)||[])[0];
+assert.ok(shellCache,'نسخه‌ی پوسته در sw.js پیدا نشد');
 const {chromium}=await import(process.env.PLAYWRIGHT_MODULE||'playwright');
 const browser=await chromium.launch({headless:true,executablePath:process.env.CHROMIUM_PATH||undefined,args:['--no-sandbox','--disable-dev-shm-usage','--use-gl=angle','--use-angle=swiftshader']});
 const base=process.env.BASE_URL||'http://localhost:8000';
@@ -91,7 +97,7 @@ try{
  page.on('pageerror',e=>errors.push(e.message));
  await page.goto(base);await page.evaluate(()=>navigator.serviceWorker.ready);
  await wait(page,()=>!!navigator.serviceWorker.controller);
- assert.ok((await page.evaluate(()=>caches.keys())).includes('cryptobin-shell-v6'));
+ assert.ok((await page.evaluate(()=>caches.keys())).includes(shellCache),`کش ${shellCache} در مرورگر ساخته نشد`);
  await context.setOffline(true);await page.reload();
  await wait(page,()=>!state.loading);
  // Fresh context starts on the long tab; the short workspace is reachable via its tab.
